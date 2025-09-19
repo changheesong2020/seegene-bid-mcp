@@ -20,7 +20,19 @@ from src.config import settings
 from src.database.connection import init_database, DatabaseManager
 from src.models.filters import BidFilter
 from src.models.bid_info import BidInfo
+from src.models.crawler_api import (
+    CrawlerRequest, CrawlerExecutionResponse, AllCrawlerExecutionResponse,
+    CrawlerResultsResponse, SiteCrawlerResultResponse, ScheduledJobsResponse,
+    ScheduleRequest, ScheduleResponse
+)
+from src.models.advanced_filters import (
+    AdvancedBidSearchRequest, AdvancedSearchResponse, KeywordSuggestionsResponse,
+    KeywordExpansion, AdvancedSearchQuery, KeywordGroup
+)
+from src.services.advanced_search import advanced_search_service
+from src.utils.keyword_expansion import keyword_engine
 from src.utils.logger import get_logger
+from src.crawler.manager import crawler_manager
 
 logger = get_logger(__name__)
 
@@ -31,12 +43,17 @@ async def lifespan(app: FastAPI):
     try:
         await init_database()
         logger.info("✅ 데이터베이스 초기화 완료")
+
+        # 크롤러 스케줄러 시작
+        await crawler_manager.start_scheduler()
+        logger.info("✅ 크롤러 스케줄러 시작 완료")
     except Exception as e:
-        logger.error(f"❌ 데이터베이스 초기화 실패: {e}")
+        logger.error(f"❌ 초기화 실패: {e}")
     
     yield
     
     # 종료 시
+    await crawler_manager.stop_scheduler()
     logger.info("🛑 서버 종료 중...")
 
 # FastAPI 앱 생성
@@ -123,6 +140,212 @@ if FastMCP:
                 "error": str(e)
             }
 
+    @mcp.tool()
+    async def run_crawler(
+        site_name: str,
+        keywords: List[str] = None
+    ) -> Dict[str, Any]:
+        """특정 사이트에서 크롤링 실행"""
+        try:
+            logger.info(f"크롤링 실행: {site_name}")
+
+            result = await crawler_manager.run_crawler(site_name, keywords)
+
+            return {
+                "success": True,
+                "crawler_result": result
+            }
+
+        except Exception as e:
+            logger.error(f"크롤링 실행 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def run_all_crawlers(
+        keywords: List[str] = None
+    ) -> Dict[str, Any]:
+        """모든 사이트에서 크롤링 실행"""
+        try:
+            logger.info("전체 크롤링 실행")
+
+            result = await crawler_manager.run_all_crawlers(keywords)
+
+            return {
+                "success": True,
+                "crawling_result": result
+            }
+
+        except Exception as e:
+            logger.error(f"전체 크롤링 실행 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def get_crawler_status() -> Dict[str, Any]:
+        """크롤러 상태 조회"""
+        try:
+            status = crawler_manager.get_crawler_status()
+
+            return {
+                "success": True,
+                "crawler_status": status
+            }
+
+        except Exception as e:
+            logger.error(f"크롤러 상태 조회 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def get_scheduled_jobs() -> Dict[str, Any]:
+        """예약된 크롤링 작업 조회"""
+        try:
+            jobs = crawler_manager.get_scheduled_jobs()
+
+            return {
+                "success": True,
+                "scheduled_jobs": jobs
+            }
+
+        except Exception as e:
+            logger.error(f"예약된 작업 조회 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def add_crawler_schedule(
+        site_name: str,
+        cron_expression: str,
+        job_id: str = None
+    ) -> Dict[str, Any]:
+        """크롤러 스케줄 추가"""
+        try:
+            success = await crawler_manager.add_custom_schedule(site_name, cron_expression, job_id)
+
+            return {
+                "success": success,
+                "message": "스케줄 추가 성공" if success else "스케줄 추가 실패"
+            }
+
+        except Exception as e:
+            logger.error(f"스케줄 추가 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def advanced_search_bids(
+        keywords: List[str],
+        countries: List[str] = None,
+        enable_expansion: bool = True,
+        min_relevance: float = None,
+        limit: int = 50
+    ) -> Dict[str, Any]:
+        """고급 키워드 확장 검색"""
+        try:
+            logger.info(f"MCP 고급 검색: 키워드={keywords}")
+
+            # 확장 설정
+            expansion_config = None
+            if enable_expansion:
+                expansion_config = KeywordExpansion(
+                    enable_synonyms=True,
+                    enable_related_terms=True,
+                    enable_translations=True,
+                    enable_abbreviations=True
+                )
+
+            # 키워드 그룹 생성
+            keyword_groups = [KeywordGroup(
+                keywords=keywords,
+                operator="or",
+                weight=1.0
+            )]
+
+            # 검색 쿼리 구성
+            search_query = AdvancedSearchQuery(
+                keyword_groups=keyword_groups,
+                countries=countries or ["KR", "US"],
+                min_relevance_score=min_relevance,
+                limit=limit
+            )
+
+            # 요청 생성 및 검색
+            request = AdvancedBidSearchRequest(
+                query=search_query,
+                expansion=expansion_config,
+                include_metadata=True,
+                explain_relevance=True
+            )
+
+            result = await advanced_search_service.search_bids(request)
+
+            return {
+                "success": True,
+                "search_result": {
+                    "total_found": result.total_found,
+                    "search_time": result.search_time,
+                    "query_summary": result.query_summary,
+                    "filters_applied": result.filters_applied,
+                    "results": [
+                        {
+                            "title": r.title,
+                            "organization": r.organization,
+                            "country": r.country,
+                            "relevance_score": r.relevance_score,
+                            "matched_keywords": r.matched_keywords,
+                            "source_url": r.source_url,
+                            "urgency_level": r.urgency_level
+                        } for r in result.results[:10]  # 처음 10개만
+                    ]
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"MCP 고급 검색 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def get_keyword_suggestions(
+        keywords: List[str],
+        max_suggestions: int = 10
+    ) -> Dict[str, Any]:
+        """키워드 제안 받기"""
+        try:
+            suggestions = keyword_engine.get_keyword_suggestions(keywords, max_suggestions)
+
+            return {
+                "success": True,
+                "original_keywords": keywords,
+                "suggestions": [
+                    {
+                        "keyword": s.keyword,
+                        "relevance": s.relevance,
+                        "source": s.source
+                    } for s in suggestions
+                ]
+            }
+
+        except Exception as e:
+            logger.error(f"키워드 제안 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     # MCP 서버 마운트
     app.mount("/mcp", mcp.sse_app())
 
@@ -137,7 +360,21 @@ async def root():
         "endpoints": {
             "health": "/health",
             "docs": "/docs",
-            "mcp": "/mcp" if FastMCP else "Not available (install fastmcp)"
+            "mcp": "/mcp" if FastMCP else "Not available (install fastmcp)",
+            "crawler_apis": {
+                "run_single": "POST /crawl/{site_name}",
+                "run_all": "POST /crawl-all",
+                "get_results": "GET /crawl-results",
+                "get_site_results": "GET /crawl-results/{site_name}",
+                "scheduled_jobs": "GET /scheduled-jobs",
+                "add_schedule": "POST /schedule-crawler",
+                "remove_schedule": "DELETE /schedule-crawler/{job_id}"
+            },
+            "advanced_search_apis": {
+                "advanced_search": "POST /search/advanced",
+                "keyword_suggestions": "GET /search/keyword-suggestions",
+                "search_with_expansion": "POST /search/expanded"
+            }
         }
     }
 
@@ -160,18 +397,287 @@ async def health_check():
 @app.get("/crawler-status")
 async def crawler_status_endpoint():
     """크롤러 상태 확인 엔드포인트"""
-    return {
-        "g2b": {
-            "can_make_requests": False,
-            "has_credentials": False,
-            "status": "not_configured"
-        },
-        "samgov": {
-            "can_make_requests": False,
-            "has_credentials": False,
-            "status": "not_configured"
+    try:
+        status = crawler_manager.get_crawler_status()
+        return status
+    except Exception as e:
+        logger.error(f"크롤러 상태 조회 실패: {e}")
+        return {
+            "error": str(e),
+            "scheduler_running": False,
+            "crawlers": {}
         }
+
+@app.post("/crawl/{site_name}", response_model=CrawlerExecutionResponse)
+async def run_single_crawler(site_name: str, request: CrawlerRequest = None):
+    """특정 사이트에서 크롤링 실행"""
+    try:
+        logger.info(f"수동 크롤링 실행 요청: {site_name}")
+
+        keywords = request.keywords if request else None
+        result = await crawler_manager.run_crawler(site_name, keywords)
+
+        return CrawlerExecutionResponse(
+            success=True,
+            message=f"{site_name} 크롤링 완료",
+            result=result
+        )
+
+    except Exception as e:
+        logger.error(f"크롤링 실행 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/crawl-all", response_model=AllCrawlerExecutionResponse)
+async def run_all_crawlers_endpoint(request: CrawlerRequest = None):
+    """모든 사이트에서 크롤링 실행"""
+    try:
+        logger.info("전체 크롤링 실행 요청")
+
+        keywords = request.keywords if request else None
+        result = await crawler_manager.run_all_crawlers(keywords)
+
+        return AllCrawlerExecutionResponse(
+            success=True,
+            message="전체 크롤링 완료",
+            result=result
+        )
+
+    except Exception as e:
+        logger.error(f"전체 크롤링 실행 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/crawl-results", response_model=CrawlerResultsResponse)
+async def get_crawler_results():
+    """최근 크롤링 결과 조회"""
+    try:
+        results = crawler_manager.last_run_results
+
+        return CrawlerResultsResponse(
+            success=True,
+            last_run_results=results,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"크롤링 결과 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/crawl-results/{site_name}", response_model=SiteCrawlerResultResponse)
+async def get_site_crawler_results(site_name: str):
+    """특정 사이트 크롤링 결과 조회"""
+    try:
+        if site_name not in crawler_manager.last_run_results:
+            raise HTTPException(status_code=404, detail=f"{site_name}의 크롤링 결과를 찾을 수 없습니다")
+
+        result = crawler_manager.last_run_results[site_name]
+
+        return SiteCrawlerResultResponse(
+            success=True,
+            site=site_name,
+            result=result
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"사이트별 크롤링 결과 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/scheduled-jobs", response_model=ScheduledJobsResponse)
+async def get_scheduled_jobs_endpoint():
+    """예약된 크롤링 작업 목록 조회"""
+    try:
+        jobs = crawler_manager.get_scheduled_jobs()
+
+        return ScheduledJobsResponse(
+            success=True,
+            scheduled_jobs=jobs,
+            scheduler_running=crawler_manager.is_running
+        )
+
+    except Exception as e:
+        logger.error(f"예약된 작업 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/schedule-crawler", response_model=ScheduleResponse)
+async def add_crawler_schedule_endpoint(request: ScheduleRequest):
+    """크롤러 스케줄 추가"""
+    try:
+        if request.site_name not in ["G2B", "SAM.gov"]:
+            raise HTTPException(status_code=400, detail="지원하지 않는 사이트입니다. G2B 또는 SAM.gov만 가능합니다.")
+
+        success = await crawler_manager.add_custom_schedule(
+            request.site_name,
+            request.cron_expression,
+            request.job_id
+        )
+
+        if success:
+            return ScheduleResponse(
+                success=True,
+                message=f"{request.site_name} 스케줄이 추가되었습니다",
+                site_name=request.site_name,
+                cron_expression=request.cron_expression,
+                job_id=request.job_id
+            )
+        else:
+            raise HTTPException(status_code=400, detail="스케줄 추가에 실패했습니다")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"스케줄 추가 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/schedule-crawler/{job_id}", response_model=ScheduleResponse)
+async def remove_crawler_schedule_endpoint(job_id: str):
+    """크롤러 스케줄 제거"""
+    try:
+        success = crawler_manager.remove_scheduled_job(job_id)
+
+        if success:
+            return ScheduleResponse(
+                success=True,
+                message=f"스케줄 작업 '{job_id}'가 제거되었습니다",
+                job_id=job_id
+            )
+        else:
+            raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없습니다")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"스케줄 제거 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/search/advanced", response_model=AdvancedSearchResponse)
+async def advanced_search_endpoint(request: AdvancedBidSearchRequest):
+    """고급 입찰 검색"""
+    try:
+        logger.info("고급 검색 요청")
+
+        result = await advanced_search_service.search_bids(request)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"고급 검색 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/search/keyword-suggestions", response_model=KeywordSuggestionsResponse)
+async def get_keyword_suggestions(
+    keywords: str,
+    max_suggestions: int = 20
+):
+    """키워드 제안"""
+    try:
+        keyword_list = [k.strip() for k in keywords.split(",")]
+        logger.info(f"키워드 제안 요청: {keyword_list}")
+
+        suggestions = keyword_engine.get_keyword_suggestions(keyword_list, max_suggestions)
+
+        return KeywordSuggestionsResponse(
+            success=True,
+            original_keywords=keyword_list,
+            suggestions=suggestions,
+            total_suggestions=len(suggestions)
+        )
+
+    except Exception as e:
+        logger.error(f"키워드 제안 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/search/expanded", response_model=AdvancedSearchResponse)
+async def search_with_keyword_expansion(
+    keywords: List[str],
+    expansion_config: KeywordExpansion = None,
+    countries: List[str] = None,
+    limit: int = 50
+):
+    """키워드 확장을 포함한 간단한 검색"""
+    try:
+        logger.info(f"확장 검색 요청: 키워드={keywords}")
+
+        # 기본 확장 설정
+        if not expansion_config:
+            expansion_config = KeywordExpansion()
+
+        # 키워드 그룹 생성
+        keyword_groups = [KeywordGroup(
+            keywords=keywords,
+            operator="or",
+            weight=1.0
+        )]
+
+        # 검색 쿼리 구성
+        search_query = AdvancedSearchQuery(
+            keyword_groups=keyword_groups,
+            countries=countries,
+            limit=limit
+        )
+
+        # 요청 객체 생성
+        request = AdvancedBidSearchRequest(
+            query=search_query,
+            expansion=expansion_config,
+            include_metadata=True,
+            explain_relevance=True
+        )
+
+        # 검색 실행
+        result = await advanced_search_service.search_bids(request)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"확장 검색 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/search/filters-help")
+async def get_filters_help():
+    """고급 필터링 도움말"""
+    return {
+        "available_operators": [
+            "eq (같음)", "ne (다름)", "gt (초과)", "lt (미만)",
+            "gte (이상)", "lte (이하)", "in (포함)", "not_in (제외)",
+            "contains (문자열 포함)", "starts_with (시작)", "ends_with (끝남)"
+        ],
+        "available_fields": [
+            "title", "organization", "country", "source_site",
+            "relevance_score", "urgency_level", "currency",
+            "announcement_date", "deadline_date"
+        ],
+        "relevance_levels": ["low (1-3점)", "medium (4-6점)", "high (7-8점)", "very_high (9-10점)"],
+        "urgency_levels": ["low", "medium", "high", "urgent"],
+        "sort_options": ["relevance", "date", "announcement_date", "deadline_date", "price", "urgency"],
+        "expansion_features": [
+            "synonyms (동의어)", "related_terms (관련용어)",
+            "translations (번역)", "abbreviations (약어)"
+        ]
     }
+
+@app.get("/test/db")
+async def test_database():
+    """데이터베이스 연결 테스트"""
+    from src.database.connection import get_db_session, BidInfoModel
+    from sqlalchemy import select
+
+    try:
+        async with get_db_session() as session:
+            # 간단한 select 쿼리 테스트
+            result = await session.execute(select(BidInfoModel).limit(1))
+            bids = result.scalars().all()
+            return {
+                "success": True,
+                "message": "데이터베이스 연결 성공",
+                "found_bids": len(bids)
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"데이터베이스 연결 실패: {e}",
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
     import uvicorn

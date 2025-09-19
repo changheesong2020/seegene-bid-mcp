@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # 로그인 자격증명
     G2B_USERNAME: Optional[str] = None
     G2B_PASSWORD: Optional[str] = None
+    G2B_API_KEY: Optional[str] = None  # 조달청 공공데이터 포털 API 키
     SAMGOV_USERNAME: Optional[str] = None
     SAMGOV_PASSWORD: Optional[str] = None
     SAMGOV_API_KEY: Optional[str] = None
