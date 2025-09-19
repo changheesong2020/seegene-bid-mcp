@@ -1,0 +1,38 @@
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# SQLite Database
+seegene_bids.db
+seegene_bids.db-journal
+seegene_bids.db-wal
+
+# ChromeDriver and browsers
+chromedriver
+chromedriver.exe
+chrome_profiles/
+sessions/
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files
+backups/
+*.backup
