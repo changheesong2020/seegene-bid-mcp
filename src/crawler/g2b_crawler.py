@@ -22,21 +22,18 @@ class G2BCrawler(BaseCrawler):
 
     def __init__(self):
         super().__init__("G2B", "KR")
-        self.api_base_url = "http://apis.data.go.kr/1230000/ao/PrvtBidNtceService"
+        self.api_base_url = "http://apis.data.go.kr/1230000/ao/PubDataOpnStdService"
         self.api_key = settings.G2B_API_KEY
 
-        # API 오퍼레이션 엔드포인트
-        self.operations = {
-            "service": "getPrvtBidPblancListInfoServc",      # 용역
-            "goods": "getPrvtBidPblancListInfoThng",         # 물품
-            "construction": "getPrvtBidPblancListInfoCnstwk", # 공사
-            "etc": "getPrvtBidPblancListInfoEtc"             # 기타
-        }
+        # 공공데이터개방표준서비스 오퍼레이션
+        self.operation = "getDataSetOpnStdBidPblancInfo"  # 입찰공고정보
 
     async def login(self) -> bool:
         """API 기반이므로 로그인 불필요"""
         if not self.api_key:
-            logger.warning("G2B API 키가 설정되지 않았습니다. 더미 모드로 전환됩니다.")
+            logger.warning("G2B API 키가 설정되지 않았습니다.")
+            logger.warning("data.go.kr에서 '누리장터 민간입찰공고서비스' API 키를 발급받아 .env 파일의 G2B_API_KEY에 설정하세요.")
+            logger.warning("더미 모드로 전환됩니다.")
             self.dummy_mode = True
             return False
 
@@ -56,19 +53,27 @@ class G2BCrawler(BaseCrawler):
         """입찰 정보 검색"""
         if self.dummy_mode:
             logger.info("G2B API 키가 없어 더미 모드로 실행")
-            return self.generate_dummy_data(keywords)
+            dummy_data = self.generate_dummy_data(keywords)
+            # 더미 데이터도 결과에 포함시켜 테스트 가능하도록
+            await self._save_dummy_results(dummy_data)
+            return dummy_data
 
         all_results = []
 
         try:
-            # 모든 카테고리(용역, 물품, 공사, 기타)에서 검색
-            for category, operation in self.operations.items():
-                logger.info(f"G2B API에서 {category} 카테고리 검색 중")
+            # Seegene 키워드 추가
+            from src.config import crawler_config
+            seegene_keywords = []
+            seegene_keywords.extend(crawler_config.SEEGENE_KEYWORDS['korean'][:3])  # 상위 3개 한국어 키워드
+            seegene_keywords.extend(crawler_config.SEEGENE_KEYWORDS['english'][:3])  # 상위 3개 영어 키워드
 
-                results = await self._search_by_category(operation, category, keywords)
-                all_results.extend(results)
+            # 사용자 키워드와 Seegene 키워드 결합
+            search_keywords = keywords + seegene_keywords
+            logger.info(f"🔍 검색 키워드: {search_keywords}")
 
-                await asyncio.sleep(1)  # API 호출 간격
+            # 공공데이터개방표준서비스 API 검색
+            results = await self._search_standard_api(search_keywords)
+            all_results.extend(results)
 
             # 중복 제거
             unique_results = self._remove_duplicates(all_results)
@@ -80,29 +85,30 @@ class G2BCrawler(BaseCrawler):
             logger.error(f"G2B API 검색 중 오류: {e}")
             return all_results
 
-    async def _search_by_category(self, operation: str, category: str, keywords: List[str]) -> List[Dict[str, Any]]:
-        """카테고리별 API 검색"""
+    async def _search_standard_api(self, keywords: List[str]) -> List[Dict[str, Any]]:
+        """공공데이터개방표준서비스 API 검색"""
         results = []
 
         try:
-            # 검색 기간 설정 (최근 30일)
+            # 검색 기간 설정 (최근 30일, API 제한: 1개월)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=30)
 
-            # API 파라미터 구성
+            # 표준 API 파라미터 구성
             params = {
-                'serviceKey': self.api_key,
+                'ServiceKey': self.api_key,  # 대문자 S 주의
                 'type': 'json',
-                'numOfRows': 100,  # 한 번에 최대 100건
+                'numOfRows': 100,
                 'pageNo': 1,
-                'inqryDiv': '2',  # 공고게시일시 기준
-                'inqryBgnDt': start_date.strftime('%Y%m%d%H%M'),
-                'inqryEndDt': end_date.strftime('%Y%m%d%H%M')
+                'bidNtceBgnDt': start_date.strftime('%Y%m%d%H%M'),  # 입찰공고시작일시
+                'bidNtceEndDt': end_date.strftime('%Y%m%d%H%M')     # 입찰공고종료일시
             }
+
+            logger.info(f"🔍 표준 API 검색 - 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
 
             # API 호출
             async with aiohttp.ClientSession() as session:
-                url = f"{self.api_base_url}/{operation}"
+                url = f"{self.api_base_url}/{self.operation}"
 
                 async with session.get(url, params=params) as response:
                     if response.status != 200:
@@ -110,22 +116,47 @@ class G2BCrawler(BaseCrawler):
                         return results
 
                     data = await response.text()
-                    json_data = json.loads(data)
+                    logger.info(f"API 응답 내용 (처음 500자): {data[:500]}")
+
+                    if not data.strip():
+                        logger.warning("API에서 빈 응답 수신")
+                        return results
+
+                    # XML 오류 응답 확인
+                    if data.strip().startswith('<OpenAPI_ServiceResponse>'):
+                        logger.error("G2B API 인증 오류 - XML 오류 응답 수신")
+                        if 'SERVICE_ACCESS_DENIED_ERROR' in data:
+                            logger.error("🚫 G2B API 키 인증 실패 (오류코드: 20)")
+                            logger.error("📋 해결 방법:")
+                            logger.error("   1. data.go.kr 공공데이터포털 접속")
+                            logger.error("   2. '나라장터 공공데이터개방표준서비스' 검색 및 활용신청")
+                            logger.error("   3. 승인된 API 키를 .env 파일의 G2B_API_KEY에 설정")
+                            logger.error(f"   4. 현재 설정된 키: {self.api_key[:10]}...{self.api_key[-10:]}")
+                        logger.error(f"📄 전체 오류 응답: {data}")
+                        return results
+
+                    try:
+                        json_data = json.loads(data)
+                        logger.info(f"JSON 파싱 성공. 응답 구조: {list(json_data.keys()) if isinstance(json_data, dict) else type(json_data)}")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON 파싱 오류: {e}")
+                        logger.error(f"응답 내용: {data}")
+                        return results
 
                     # 응답 데이터 파싱
-                    results = await self._parse_api_response(json_data, category, keywords)
+                    results = await self._parse_standard_api_response(json_data, keywords)
 
         except Exception as e:
-            logger.error(f"카테고리 '{category}' API 검색 중 오류: {e}")
+            logger.error(f"표준 API 검색 중 오류: {e}")
 
         return results
 
-    async def _parse_api_response(self, json_data: Dict, category: str, keywords: List[str]) -> List[Dict[str, Any]]:
+    async def _parse_standard_api_response(self, json_data: Dict, keywords: List[str]) -> List[Dict[str, Any]]:
         """API 응답 데이터 파싱"""
         results = []
 
         try:
-            # API 응답 구조 확인
+            # 표준 API 응답 구조 확인
             if 'response' not in json_data:
                 logger.warning("API 응답에 'response' 키가 없습니다")
                 return results
@@ -141,9 +172,13 @@ class G2BCrawler(BaseCrawler):
             # 데이터 추출
             body = response.get('body', {})
             items = body.get('items', [])
+            total_count = body.get('totalCount', 0)
+
+            logger.info(f"📊 전체 결과 수: {total_count}건")
+            logger.info(f"🔍 items 타입: {type(items)}, 길이: {len(items) if isinstance(items, list) else 'N/A'}")
 
             if not items:
-                logger.info(f"카테고리 '{category}'에서 검색 결과 없음")
+                logger.info("검색 결과 없음")
                 return results
 
             # 리스트 처리 (단일 아이템인 경우 리스트로 변환)
@@ -152,30 +187,36 @@ class G2BCrawler(BaseCrawler):
 
             for item in items:
                 try:
-                    # 키워드 필터링
-                    title = item.get('ntceNm', '')
-                    organization = item.get('ntceInsttNm', '')
+                    # 키워드 필터링 (표준 API 필드 사용)
+                    title = item.get('ntceNm', '')  # 입찰공고명
+                    organization = item.get('ntceInsttNm', '')  # 공고기관명
+
+                    # 디버깅: 입찰 제목 로그
+                    logger.info(f"📋 입찰제목: {title}")
 
                     if not self._matches_keywords(title, organization, keywords):
+                        logger.info(f"❌ 키워드 매칭 실패: {title[:50]}...")
                         continue
+
+                    logger.info(f"✅ 키워드 매칭 성공: {title[:50]}...")
 
                     # 관련성 점수 계산
                     relevance_score = self.calculate_relevance_score(title, organization)
 
                     # 긴급도 레벨 계산
-                    deadline_date = item.get('bidClseDt', '')
+                    deadline_date = item.get('bidClseDate', '')  # 입찰마감일자
                     urgency_level = self.determine_urgency_level(deadline_date)
 
-                    # 입찰정보 구성
+                    # 입찰정보 구성 (표준 API 필드 매핑)
                     bid_info = {
                         "title": title,
                         "organization": organization,
-                        "bid_number": item.get('bidNtceNo', ''),
-                        "announcement_date": self._format_date(item.get('nticeDt', '')),
-                        "deadline_date": self._format_date(deadline_date),
-                        "estimated_price": self._format_price(item.get('refAmt', '')),
+                        "bid_number": item.get('bidNtceNo', ''),  # 입찰공고번호
+                        "announcement_date": item.get('nticeDt', ''),  # 입찰공고일자
+                        "deadline_date": deadline_date,
+                        "estimated_price": self._format_price(item.get('presmptPrce', '')),  # 추정가격
                         "currency": "KRW",
-                        "source_url": self._generate_detail_url(item.get('bidNtceNo', '')),
+                        "source_url": item.get('bidNtceUrl', ''),  # 입찰공고URL
                         "source_site": "G2B",
                         "country": "KR",
                         "keywords": self._extract_keywords(title, organization),
@@ -184,21 +225,23 @@ class G2BCrawler(BaseCrawler):
                         "status": "active",
                         "extra_data": {
                             "crawled_at": datetime.now().isoformat(),
-                            "category": category,
-                            "bid_method": item.get('bidMethdNm', ''),
-                            "contract_method": item.get('cntrctMthdNm', ''),
-                            "bid_qualification": item.get('bidQlfctNm', ''),
-                            "opening_date": self._format_date(item.get('opengDt', '')),
-                            "opening_place": item.get('opengPlce', ''),
-                            "contact_name": item.get('ofclNm', ''),
-                            "contact_phone": item.get('ofclTelNo', ''),
-                            "contact_email": item.get('ofclEmail', ''),
-                            "reference_number": item.get('refNo', ''),
-                            "notice_division": item.get('ntceDivNm', ''),
-                            "vat_included": item.get('vatInclsnYnNm', ''),
-                            "budget_amount": self._format_price(item.get('asignBdgtAmt', '')),
-                            "region_limit": item.get('rgnLmtDivNm', ''),
-                            "api_data": True
+                            "bid_order": item.get('bidNtceOrd', ''),  # 입찰공고차수
+                            "business_division": item.get('bsnsDivNm', ''),  # 업무구분명
+                            "contract_method": item.get('cntrctCnclsMthdNm', ''),  # 계약체결방법명
+                            "contract_type": item.get('cntrctCnclsSttusNm', ''),  # 계약체결형태명
+                            "decision_method": item.get('bidwinrDcsnMthdNm', ''),  # 낙찰자결정방법명
+                            "opening_date": item.get('opengDate', ''),  # 개찰일자
+                            "opening_time": item.get('opengTm', ''),  # 개찰시각
+                            "opening_place": item.get('opengPlce', ''),  # 개찰장소
+                            "budget_amount": self._format_price(item.get('asignBdgtAmt', '')),  # 배정예산금액
+                            "international_bid": item.get('intrntnlBidYn', ''),  # 국제입찰여부
+                            "electronic_bid": item.get('elctrnBidYn', ''),  # 전자입찰여부
+                            "demand_institution": item.get('dmndInsttNm', ''),  # 수요기관명
+                            "notice_status": item.get('bidNtceSttusNm', ''),  # 입찰공고상태명
+                            "region_limit": item.get('rgnLmtYn', ''),  # 지역제한여부
+                            "industry_limit": item.get('indstrytyLmtYn', ''),  # 업종제한여부
+                            "api_data": True,
+                            "api_version": "standard"
                         }
                     }
 
