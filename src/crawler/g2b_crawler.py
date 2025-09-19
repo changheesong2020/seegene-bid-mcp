@@ -1,6 +1,6 @@
 """
 G2B (나라장터) API Crawler
-조달청 공공데이터 포털 Open API를 통한 민간입찰공고 크롤러
+조달청 공공데이터 포털 Open API - 입찰공고정보서비스 기반 크롤러
 """
 
 import asyncio
@@ -8,7 +8,6 @@ import aiohttp
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from urllib.parse import urlencode
 
 from src.crawler.base import BaseCrawler
 from src.config import settings
@@ -22,11 +21,24 @@ class G2BCrawler(BaseCrawler):
 
     def __init__(self):
         super().__init__("G2B", "KR")
+<<<<<<< HEAD
         self.api_base_url = "http://apis.data.go.kr/1230000/ao/PubDataOpnStdService"
         self.api_key = settings.G2B_API_KEY
 
         # 공공데이터개방표준서비스 오퍼레이션
         self.operation = "getDataSetOpnStdBidPblancInfo"  # 입찰공고정보
+=======
+        self.api_base_url = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService"
+        self.api_key = settings.G2B_API_KEY
+
+        # API 오퍼레이션 엔드포인트
+        self.operations = {
+            "service": "getBidPblancListInfoServc",      # 용역
+            "goods": "getBidPblancListInfoThng",         # 물품
+            "construction": "getBidPblancListInfoCnstwk", # 공사
+            "etc": "getBidPblancListInfoEtc"             # 기타
+        }
+>>>>>>> 4c7bf815c6480e85632e520778aff85a1437ef68
 
     async def login(self) -> bool:
         """API 기반이므로 로그인 불필요"""
@@ -116,6 +128,7 @@ class G2BCrawler(BaseCrawler):
                         return results
 
                     data = await response.text()
+<<<<<<< HEAD
                     logger.info(f"API 응답 내용 (처음 500자): {data[:500]}")
 
                     if not data.strip():
@@ -141,6 +154,12 @@ class G2BCrawler(BaseCrawler):
                     except json.JSONDecodeError as e:
                         logger.error(f"JSON 파싱 오류: {e}")
                         logger.error(f"응답 내용: {data}")
+=======
+                    try:
+                        json_data = json.loads(data)
+                    except json.JSONDecodeError:
+                        logger.error("API 응답을 JSON으로 파싱하지 못했습니다. XML 응답일 수 있습니다.")
+>>>>>>> 4c7bf815c6480e85632e520778aff85a1437ef68
                         return results
 
                     # 응답 데이터 파싱
@@ -165,7 +184,8 @@ class G2BCrawler(BaseCrawler):
 
             # 결과 코드 확인
             header = response.get('header', {})
-            if header.get('resultCode') != '00':
+            result_code = header.get('resultCode') or header.get('resultcode')
+            if result_code != '00':
                 logger.warning(f"API 오류: {header.get('resultMsg', 'Unknown error')}")
                 return results
 
@@ -182,17 +202,22 @@ class G2BCrawler(BaseCrawler):
                 return results
 
             # 리스트 처리 (단일 아이템인 경우 리스트로 변환)
-            if isinstance(items, dict):
-                items = [items]
+            items = self._normalize_items(items)
 
             for item in items:
                 try:
+<<<<<<< HEAD
                     # 키워드 필터링 (표준 API 필드 사용)
                     title = item.get('ntceNm', '')  # 입찰공고명
                     organization = item.get('ntceInsttNm', '')  # 공고기관명
 
                     # 디버깅: 입찰 제목 로그
                     logger.info(f"📋 입찰제목: {title}")
+=======
+                    # 키워드 필터링
+                    title = self._get_first_non_empty(item, ['bidNtceNm', 'ntceNm', 'bidNm'])
+                    organization = self._get_first_non_empty(item, ['ntceInsttNm', 'dminsttNm', 'insttNm'])
+>>>>>>> 4c7bf815c6480e85632e520778aff85a1437ef68
 
                     if not self._matches_keywords(title, organization, keywords):
                         logger.info(f"❌ 키워드 매칭 실패: {title[:50]}...")
@@ -204,6 +229,7 @@ class G2BCrawler(BaseCrawler):
                     relevance_score = self.calculate_relevance_score(title, organization)
 
                     # 긴급도 레벨 계산
+<<<<<<< HEAD
                     deadline_date = item.get('bidClseDate', '')  # 입찰마감일자
                     urgency_level = self.determine_urgency_level(deadline_date)
 
@@ -217,6 +243,32 @@ class G2BCrawler(BaseCrawler):
                         "estimated_price": self._format_price(item.get('presmptPrce', '')),  # 추정가격
                         "currency": "KRW",
                         "source_url": item.get('bidNtceUrl', ''),  # 입찰공고URL
+=======
+                    deadline_date = self._get_first_non_empty(item, ['bidClseDt', 'bidClseDt1', 'bidClseDt2'])
+                    urgency_level = self.determine_urgency_level(deadline_date)
+
+                    # 입찰정보 구성
+                    bid_number = item.get('bidNtceNo', '')
+                    bid_notice_order = item.get('bidNtceOrd', '')
+                    announcement_date_raw = self._get_first_non_empty(item, ['bidNtceDt', 'nticeDt', 'ntceDt'])
+                    estimated_price_raw = self._get_first_non_empty(item, ['presmptPrce', 'refAmt', 'asignBdgtAmt'])
+                    budget_amount_raw = self._get_first_non_empty(item, ['asignBdgtAmt', 'bdgtAmt'])
+
+                    detail_url = self._get_first_non_empty(item, ['bidNtceDtlUrl']) or self._generate_detail_url(
+                        bid_number,
+                        bid_notice_order
+                    )
+
+                    bid_info = {
+                        "title": title,
+                        "organization": organization,
+                        "bid_number": bid_number,
+                        "announcement_date": self._format_date(announcement_date_raw),
+                        "deadline_date": self._format_date(deadline_date),
+                        "estimated_price": self._format_price(estimated_price_raw),
+                        "currency": "KRW",
+                        "source_url": detail_url,
+>>>>>>> 4c7bf815c6480e85632e520778aff85a1437ef68
                         "source_site": "G2B",
                         "country": "KR",
                         "keywords": self._extract_keywords(title, organization),
@@ -225,6 +277,7 @@ class G2BCrawler(BaseCrawler):
                         "status": "active",
                         "extra_data": {
                             "crawled_at": datetime.now().isoformat(),
+<<<<<<< HEAD
                             "bid_order": item.get('bidNtceOrd', ''),  # 입찰공고차수
                             "business_division": item.get('bsnsDivNm', ''),  # 업무구분명
                             "contract_method": item.get('cntrctCnclsMthdNm', ''),  # 계약체결방법명
@@ -242,6 +295,25 @@ class G2BCrawler(BaseCrawler):
                             "industry_limit": item.get('indstrytyLmtYn', ''),  # 업종제한여부
                             "api_data": True,
                             "api_version": "standard"
+=======
+                            "category": category,
+                            "bid_method": item.get('bidMethdNm', ''),
+                            "contract_method": item.get('cntrctMthdNm', ''),
+                            "bid_qualification": self._get_first_non_empty(item, ['bidQlfctNm', 'bidPrtcptQlfctNm']),
+                            "opening_date": self._format_date(self._get_first_non_empty(item, ['opengDt', 'bidOpenDt'])),
+                            "opening_place": self._get_first_non_empty(item, ['opengPlce', 'bidOpenPlce']),
+                            "contact_name": self._get_first_non_empty(item, ['ofclNm', 'chrgePerNm']),
+                            "contact_phone": self._get_first_non_empty(item, ['ofclTelNo', 'chrgePerTel']),
+                            "contact_email": self._get_first_non_empty(item, ['ofclEmail', 'chrgePerEmail']),
+                            "reference_number": self._get_first_non_empty(item, ['refNo', 'bidNtceRefNo']),
+                            "notice_division": self._get_first_non_empty(item, ['ntceDivNm', 'ntceKindNm']),
+                            "vat_included": self._get_first_non_empty(item, ['vatInclsnYnNm', 'vatYnNm']),
+                            "budget_amount": self._format_price(budget_amount_raw),
+                            "region_limit": self._get_first_non_empty(item, ['rgnLmtDivNm', 'bidAreaLmtYnNm']),
+                            "bid_notice_order": bid_notice_order,
+                            "api_data": True,
+                            "api_service": "BidPublicInfoService"
+>>>>>>> 4c7bf815c6480e85632e520778aff85a1437ef68
                         }
                     }
 
@@ -293,46 +365,106 @@ class G2BCrawler(BaseCrawler):
 
         return list(set(keywords))  # 중복 제거
 
+    def _normalize_items(self, items: Any) -> List[Dict[str, Any]]:
+        """API 응답 items 구조를 리스트로 정규화"""
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+
+        if isinstance(items, dict):
+            if 'item' in items:
+                nested = items['item']
+                if isinstance(nested, list):
+                    return [item for item in nested if isinstance(item, dict)]
+                if isinstance(nested, dict):
+                    return [nested]
+            return [items]
+
+        return []
+
+    def _get_first_non_empty(self, item: Dict[str, Any], keys: List[str]) -> str:
+        """주어진 키 목록에서 가장 먼저 등장하는 유효한 값을 반환"""
+        for key in keys:
+            value = item.get(key)
+            if value is not None and str(value).strip() != "":
+                return value
+        return ""
+
     def _format_date(self, date_str: str) -> str:
         """날짜 형식 변환"""
         if not date_str:
             return ""
 
-        try:
-            # API 응답 형식: "2025-01-15 14:30:00"
-            if len(date_str) >= 10:
-                return date_str[:10]  # YYYY-MM-DD 형식으로 변환
-            return date_str
-        except:
-            return date_str
+        value = str(date_str).strip()
+        if not value:
+            return ""
+
+        date_formats = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d",
+            "%Y%m%d%H%M%S",
+            "%Y%m%d%H%M",
+            "%Y%m%d",
+            "%Y/%m/%d",
+            "%Y.%m.%d"
+        ]
+
+        for fmt in date_formats:
+            try:
+                parsed_date = datetime.strptime(value, fmt)
+                return parsed_date.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+
+        if len(value) >= 10:
+            return value[:10]
+        return value
 
     def _format_price(self, price_str: str) -> str:
         """가격 형식 변환"""
-        if not price_str:
+        if price_str is None:
             return ""
 
-        try:
-            # 숫자만 추출하여 원화 형식으로 변환
-            price_num = int(price_str)
-            return f"{price_num:,}원"
-        except:
-            return price_str
+        value = str(price_str).strip()
+        if not value:
+            return ""
 
-    def _generate_detail_url(self, bid_number: str) -> str:
+        normalized = value.replace(",", "")
+
+        try:
+            price_num = float(normalized)
+        except ValueError:
+            filtered = "".join(ch for ch in normalized if ch.isdigit() or ch == '.')
+            if not filtered:
+                return value
+            try:
+                price_num = float(filtered)
+            except ValueError:
+                return value
+
+        return f"{int(price_num):,}원"
+
+    def _generate_detail_url(self, bid_number: str, bid_notice_order: str = "") -> str:
         """상세 페이지 URL 생성"""
         if not bid_number:
             return ""
-        return f"https://www.g2b.go.kr/ep/invitation/publish/bidInfoDtl/bidInfoDtl.do?bidNo={bid_number}"
+        base_url = "https://www.g2b.go.kr/ep/invitation/publish/bidInfoDtl/bidInfoDtl.do"
+        if bid_notice_order:
+            return f"{base_url}?bidNo={bid_number}&bidRound={bid_notice_order}"
+        return f"{base_url}?bidNo={bid_number}"
 
     def _remove_duplicates(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """중복 제거"""
-        seen_bid_numbers = set()
+        seen_bid_keys = set()
         unique_results = []
 
         for result in results:
             bid_number = result.get('bid_number', '')
-            if bid_number and bid_number not in seen_bid_numbers:
-                seen_bid_numbers.add(bid_number)
+            bid_notice_order = result.get('extra_data', {}).get('bid_notice_order', '') if isinstance(result.get('extra_data'), dict) else ''
+            bid_key = (bid_number, bid_notice_order)
+
+            if bid_number and bid_key not in seen_bid_keys:
+                seen_bid_keys.add(bid_key)
                 unique_results.append(result)
             elif not bid_number:  # bid_number가 없는 경우 URL로 중복 체크
                 source_url = result.get('source_url', '')
@@ -385,7 +517,9 @@ class G2BCrawler(BaseCrawler):
                     "extra_data": {
                         "crawled_at": datetime.now().isoformat(),
                         "category": category,
+                        "bid_notice_order": f"{j+1}",
                         "api_data": False,
+                        "api_service": "BidPublicInfoService",
                         "dummy_data": True,
                         "note": "G2B API 키 없음으로 인한 테스트 데이터"
                     }

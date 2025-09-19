@@ -185,7 +185,7 @@ PORT=8001 python run.py
 
 ## 📞 지원
 
-- **문의**: seegene-bid-support@company.com
+- **문의**: chsong@seegene.com
 - **문서**: 이 README 파일 참조
 
 ---
