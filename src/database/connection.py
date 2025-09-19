@@ -65,7 +65,7 @@ class BidInfoModel(Base):
     relevance_score = Column(Float, default=0.0, index=True)
     urgency_level = Column(String(20), default='low')
     status = Column(String(50), default='active', index=True)
-    metadata = Column(JSON, default={})
+    extra_data = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

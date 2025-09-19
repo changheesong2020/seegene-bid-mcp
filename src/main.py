@@ -124,7 +124,7 @@ if FastMCP:
             }
 
     # MCP 서버 마운트
-    app.mount("/mcp", mcp.create_server())
+    app.mount("/mcp", mcp.sse_app())
 
 # FastAPI 라우트
 @app.get("/")
