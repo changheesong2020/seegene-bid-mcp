@@ -13,7 +13,7 @@ from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-from ..crawler.base_crawler import BaseCrawler
+from ..crawler.base import BaseCrawler
 from ..models.tender_notice import (
     TenderNotice, TenderStatus, TenderType, ProcurementMethod,
     TenderValue, Organization, Classification, TenderDocument,
@@ -55,6 +55,30 @@ class UKFTSCrawler(BaseCrawler):
                 }
             )
         return self.session
+
+    async def login(self) -> bool:
+        """UK FTS API는 로그인이 필요없음"""
+        return True
+
+    async def search_bids(self, keywords: List[str]) -> List[Dict[str, Any]]:
+        """키워드로 입찰 검색 (BaseCrawler 호환)"""
+        tender_notices = await self.collect_bids()
+        # TenderNotice를 Dict로 변환
+        results = []
+        for notice in tender_notices:
+            if any(keyword.lower() in notice.title.lower() or
+                   keyword.lower() in (notice.description or "").lower()
+                   for keyword in keywords):
+                results.append({
+                    "title": notice.title,
+                    "description": notice.description,
+                    "url": notice.source_url,
+                    "organization": notice.buyer.name,
+                    "deadline": notice.submission_deadline.isoformat() if notice.submission_deadline else None,
+                    "amount": notice.estimated_value.amount if notice.estimated_value else None,
+                    "currency": notice.estimated_value.currency if notice.estimated_value else None,
+                })
+        return results
 
     async def collect_bids(self, days: int = 30) -> List[TenderNotice]:
         """UK FTS에서 입찰 공고 수집"""

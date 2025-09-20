@@ -7,7 +7,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, validator, model_validator
 
 
 class TenderStatus(str, Enum):
@@ -150,18 +150,20 @@ class TenderNotice(BaseModel):
         """키워드를 소문자로 변환"""
         return [kw.lower() for kw in v] if v else []
 
-    @root_validator
+    @model_validator(mode='before')
+    @classmethod
     def validate_dates(cls, values):
         """날짜 검증"""
-        published = values.get('published_date')
-        deadline = values.get('submission_deadline')
-        opening = values.get('opening_date')
+        if isinstance(values, dict):
+            published = values.get('published_date')
+            deadline = values.get('submission_deadline')
+            opening = values.get('opening_date')
 
-        if published and deadline and deadline < published:
-            raise ValueError('Submission deadline cannot be before published date')
+            if published and deadline and deadline < published:
+                raise ValueError('Submission deadline cannot be before published date')
 
-        if deadline and opening and opening < deadline:
-            raise ValueError('Opening date cannot be before submission deadline')
+            if deadline and opening and opening < deadline:
+                raise ValueError('Opening date cannot be before submission deadline')
 
         return values
 
