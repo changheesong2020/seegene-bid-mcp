@@ -5,10 +5,13 @@ EU 공식 입찰공고 플랫폼 API 기반 데이터 수집
 
 import asyncio
 import aiohttp
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from loguru import logger
-import re
+
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 from ..crawler.base_crawler import BaseCrawler
 from ..models.tender_notice import (

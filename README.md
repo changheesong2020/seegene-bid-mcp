@@ -258,12 +258,15 @@ PORT=8001 python run.py
 
 ## ⚡ 빠른 시작 체크리스트
 
-- [x] 프로젝트 생성
+- [x] 프로젝트 생성 완료
 - [ ] `cd seegene-bid-mcp`
 - [ ] `pip install -r requirements.txt`
+- [ ] `.env` 파일 설정 (특히 G2B_API_KEY)
 - [ ] `python run.py` 실행
 - [ ] http://localhost:8000/health 접속 확인
-- [ ] Claude/Cursor MCP 설정
+- [ ] http://localhost:8000/docs에서 API 문서 확인
+- [ ] 크롤링 테스트: `curl -X POST http://localhost:8000/crawl-all`
+- [ ] Claude/Cursor MCP 설정 (선택사항)
 
 ## 📞 지원
 
@@ -272,6 +275,26 @@ PORT=8001 python run.py
 
 ---
 
-**Made with ❤️ for Seegene**
+## 🎯 기술 스택
 
-*SQLite 경량 버전으로 더욱 간편하게 시작하세요!*
+- **백엔드**: FastAPI + Python 3.8+
+- **데이터베이스**: SQLite + SQLAlchemy (비동기)
+- **크롤링**: aiohttp + Beautiful Soup + Selenium
+- **스케줄링**: APScheduler
+- **데이터 검증**: Pydantic
+- **로깅**: Loguru
+- **테스트**: pytest + httpx
+
+## 📈 성능 특징
+
+- **비동기 처리**: 동시 다국가 크롤링 지원
+- **메모리 효율성**: SQLite 경량 데이터베이스
+- **확장성**: 모듈화된 크롤러 아키텍처
+- **신뢰성**: 오류 복구 및 재시도 로직
+- **보안**: 환경변수 기반 설정 관리
+
+---
+
+**Made with ❤️ for Seegene Global Expansion**
+
+*4개국 헬스케어 입찰 정보를 하나의 시스템으로!*

@@ -5,10 +5,13 @@ UK Find a Tender Service (FTS) 크롤러
 
 import asyncio
 import aiohttp
+import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from loguru import logger
-import json
+
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 from ..crawler.base_crawler import BaseCrawler
 from ..models.tender_notice import (
