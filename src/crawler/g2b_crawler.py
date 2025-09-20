@@ -125,7 +125,7 @@ class G2BCrawler(BaseCrawler):
                 return results
 
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
+            start_date = end_date - timedelta(days=90)  # 90일로 확장
 
             base_params = {
                 "ServiceKey": self.encoded_api_key,
@@ -134,6 +134,7 @@ class G2BCrawler(BaseCrawler):
                 "inqryDiv": "1",  # 등록일시 기준
                 "inqryBgnDt": start_date.strftime("%Y%m%d%H%M"),
                 "inqryEndDt": end_date.strftime("%Y%m%d%H%M"),
+                # 일단 모든 데이터를 가져와서 내용 확인
             }
 
             url = f"{self.api_base_url}/{operation}"
@@ -206,7 +207,7 @@ class G2BCrawler(BaseCrawler):
                 return results
 
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
+            start_date = end_date - timedelta(days=90)  # 90일로 확장
 
             params = {
                 "ServiceKey": self.encoded_api_key,
@@ -294,6 +295,12 @@ class G2BCrawler(BaseCrawler):
             if not items:
                 logger.info(f"카테고리 '{category_label}'에서 검색 결과 없음")
                 return results
+
+            # 실제 반환된 데이터 확인을 위한 로그
+            logger.info(f"📋 {category_label} - API에서 {len(items)}건의 입찰 데이터 반환")
+            if len(items) > 0:
+                first_item = items[0]
+                logger.info(f"📄 첫 번째 아이템 샘플: {first_item.get('bidNtceNm', first_item.get('ntceNm', '제목없음'))}")
 
             items = self._normalize_items(items)
 
