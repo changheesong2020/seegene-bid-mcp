@@ -309,11 +309,8 @@ class G2BCrawler(BaseCrawler):
                     title = self._get_first_non_empty(item, ['bidNtceNm', 'ntceNm', 'bidNm'])
                     organization = self._get_first_non_empty(item, ['ntceInsttNm', 'dminsttNm', 'insttNm'])
 
-                    if not self._matches_keywords(title, organization, keywords):
-                        logger.info(f"❌ [{category_label}] 키워드 매칭 실패: {title[:50]}...")
-                        continue
-
-                    logger.info(f"✅ [{category_label}] 키워드 매칭 성공: {title[:50]}...")
+                    # 임시로 키워드 필터링 비활성화 - 모든 결과 수집
+                    logger.info(f"📝 [{category_label}] 입찰 제목: {title[:100]}...")
 
                     relevance_score = self.calculate_relevance_score(title, organization)
 
@@ -411,6 +408,11 @@ class G2BCrawler(BaseCrawler):
             logger.info(f"📊 표준 API 전체 결과 수: {total_count}건")
             logger.info(f"🔍 items 타입: {type(items)}, 길이: {len(items) if isinstance(items, list) else 'N/A'}")
 
+            # 응답 구조 디버깅
+            if items and isinstance(items, list) and len(items) > 0:
+                logger.info(f"📄 첫 번째 아이템 샘플 키들: {list(items[0].keys())}")
+                logger.info(f"📄 첫 번째 아이템 전체: {items[0]}")
+
             if not items:
                 logger.info("표준 API 검색 결과 없음")
                 return results
@@ -424,11 +426,8 @@ class G2BCrawler(BaseCrawler):
 
                     logger.info(f"📋 표준 API 입찰제목: {title}")
 
-                    if not self._matches_keywords(title, organization, keywords):
-                        logger.info(f"❌ 표준 API 키워드 매칭 실패: {title[:50]}...")
-                        continue
-
-                    logger.info(f"✅ 표준 API 키워드 매칭 성공: {title[:50]}...")
+                    # 임시로 키워드 필터링 비활성화 - 모든 결과 수집
+                    logger.info(f"📝 표준 API 입찰 제목: {title[:100]}...")
 
                     relevance_score = self.calculate_relevance_score(title, organization)
 
