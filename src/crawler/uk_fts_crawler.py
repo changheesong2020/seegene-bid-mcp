@@ -190,9 +190,13 @@ class UKFTSCrawler(BaseCrawler):
                     else:
                         logger.warning(f"⚠️ UK FTS 예상치 못한 응답 형식: {type(data)}")
                         return []
+                elif response.status == 404:
+                    logger.warning(f"⚠️ UK FTS API 엔드포인트 404 오류 - API URL이 변경되었을 수 있습니다")
+                    logger.info("더미 데이터 모드로 전환합니다")
+                    return None
                 else:
                     error_text = await response.text()
-                    logger.error(f"❌ UK FTS API 오류 (오프셋 {offset}): {response.status} - {error_text}")
+                    logger.error(f"❌ UK FTS API 오류 (오프셋 {offset}): {response.status} - {error_text[:200]}")
                     return None
 
         except Exception as e:

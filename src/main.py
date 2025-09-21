@@ -23,7 +23,8 @@ from src.models.bid_info import BidInfo
 from src.models.crawler_api import (
     CrawlerRequest, CrawlerExecutionResponse, AllCrawlerExecutionResponse,
     CrawlerResultsResponse, SiteCrawlerResultResponse, ScheduledJobsResponse,
-    ScheduleRequest, ScheduleResponse
+    ScheduleRequest, ScheduleResponse, BidListResponse, BidDetailResponse,
+    BidSearchResponse, BidStatisticsResponse
 )
 from src.models.advanced_filters import (
     AdvancedBidSearchRequest, AdvancedSearchResponse, KeywordSuggestionsResponse,
@@ -374,6 +375,12 @@ async def root():
                 "advanced_search": "POST /search/advanced",
                 "keyword_suggestions": "GET /search/keyword-suggestions",
                 "search_with_expansion": "POST /search/expanded"
+            },
+            "bid_data_apis": {
+                "get_all_bids": "GET /bids",
+                "get_bid_by_id": "GET /bids/{bid_id}",
+                "search_bids": "GET /bids/search",
+                "get_statistics": "GET /bids/stats"
             }
         }
     }
@@ -655,6 +662,215 @@ async def get_filters_help():
             "translations (번역)", "abbreviations (약어)"
         ]
     }
+
+@app.get("/bids", response_model=BidListResponse)
+async def get_all_bids(
+    limit: int = 50,
+    offset: int = 0,
+    site: str = None,
+    country: str = None,
+    min_relevance: float = None
+):
+    """저장된 입찰 정보 목록 조회"""
+    try:
+        from src.database.connection import get_db_session, BidInfoModel
+        from sqlalchemy import select, desc
+
+        async with get_db_session() as session:
+            # 쿼리 빌드
+            query = select(BidInfoModel)
+
+            # 필터 적용
+            if site:
+                query = query.where(BidInfoModel.source_site == site)
+            if country:
+                query = query.where(BidInfoModel.country == country)
+            if min_relevance:
+                query = query.where(BidInfoModel.relevance_score >= min_relevance)
+
+            # 정렬 및 페이지네이션
+            query = query.order_by(desc(BidInfoModel.created_at)).offset(offset).limit(limit)
+
+            # 실행
+            result = await session.execute(query)
+            bids = result.scalars().all()
+
+            # 결과 변환
+            bid_list = []
+            for bid in bids:
+                bid_dict = {
+                    "id": bid.id,
+                    "title": bid.title,
+                    "organization": bid.organization,
+                    "bid_number": bid.bid_number,
+                    "announcement_date": bid.announcement_date.isoformat() if bid.announcement_date else None,
+                    "deadline_date": bid.deadline_date.isoformat() if bid.deadline_date else None,
+                    "estimated_price": bid.estimated_price,
+                    "currency": bid.currency,
+                    "source_url": bid.source_url,
+                    "source_site": bid.source_site,
+                    "country": bid.country,
+                    "relevance_score": bid.relevance_score,
+                    "urgency_level": bid.urgency_level,
+                    "status": bid.status,
+                    "keywords": bid.keywords,
+                    "created_at": bid.created_at.isoformat() if bid.created_at else None
+                }
+                bid_list.append(bid_dict)
+
+            # 총 개수 조회
+            count_query = select(BidInfoModel)
+            if site:
+                count_query = count_query.where(BidInfoModel.source_site == site)
+            if country:
+                count_query = count_query.where(BidInfoModel.country == country)
+            if min_relevance:
+                count_query = count_query.where(BidInfoModel.relevance_score >= min_relevance)
+
+            from sqlalchemy import func
+            count_result = await session.execute(select(func.count()).select_from(count_query.subquery()))
+            total_count = count_result.scalar()
+
+            return {
+                "success": True,
+                "data": bid_list,
+                "pagination": {
+                    "total": total_count,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_next": offset + limit < total_count
+                },
+                "filters": {
+                    "site": site,
+                    "country": country,
+                    "min_relevance": min_relevance
+                }
+            }
+
+    except Exception as e:
+        logger.error(f"입찰 정보 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/bids/{bid_id}", response_model=BidDetailResponse)
+async def get_bid_by_id(bid_id: int):
+    """특정 입찰 정보 상세 조회"""
+    try:
+        from src.database.connection import get_db_session, BidInfoModel
+        from sqlalchemy import select
+
+        async with get_db_session() as session:
+            result = await session.execute(select(BidInfoModel).where(BidInfoModel.id == bid_id))
+            bid = result.scalar_one_or_none()
+
+            if not bid:
+                raise HTTPException(status_code=404, detail="해당 입찰 정보를 찾을 수 없습니다")
+
+            bid_detail = {
+                "id": bid.id,
+                "title": bid.title,
+                "organization": bid.organization,
+                "bid_number": bid.bid_number,
+                "announcement_date": bid.announcement_date.isoformat() if bid.announcement_date else None,
+                "deadline_date": bid.deadline_date.isoformat() if bid.deadline_date else None,
+                "estimated_price": bid.estimated_price,
+                "currency": bid.currency,
+                "source_url": bid.source_url,
+                "source_site": bid.source_site,
+                "country": bid.country,
+                "relevance_score": bid.relevance_score,
+                "urgency_level": bid.urgency_level,
+                "status": bid.status,
+                "keywords": bid.keywords,
+                "extra_data": bid.extra_data,
+                "created_at": bid.created_at.isoformat() if bid.created_at else None,
+                "updated_at": bid.updated_at.isoformat() if bid.updated_at else None
+            }
+
+            return {
+                "success": True,
+                "data": bid_detail
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"입찰 정보 상세 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/bids/search", response_model=BidSearchResponse)
+async def search_bids_endpoint(
+    q: str,
+    limit: int = 50,
+    offset: int = 0,
+    site: str = None,
+    country: str = None
+):
+    """입찰 정보 검색"""
+    try:
+        keywords = [k.strip() for k in q.split(",") if k.strip()]
+        logger.info(f"입찰 검색 요청: 키워드={keywords}")
+
+        # 데이터베이스에서 검색
+        results = await DatabaseManager.search_bids(keywords, limit + offset)
+
+        # 오프셋 적용 (간단한 구현)
+        paginated_results = results[offset:offset + limit] if results else []
+
+        # 추가 필터 적용
+        if site:
+            paginated_results = [r for r in paginated_results if getattr(r, 'source_site', '') == site]
+        if country:
+            paginated_results = [r for r in paginated_results if getattr(r, 'country', '') == country]
+
+        # 결과 변환
+        bid_list = []
+        for bid in paginated_results:
+            bid_dict = {
+                "id": getattr(bid, 'id', 0),
+                "title": getattr(bid, 'title', ''),
+                "organization": getattr(bid, 'organization', ''),
+                "source_site": getattr(bid, 'source_site', ''),
+                "country": getattr(bid, 'country', ''),
+                "relevance_score": getattr(bid, 'relevance_score', 0.0),
+                "source_url": getattr(bid, 'source_url', ''),
+                "estimated_price": getattr(bid, 'estimated_price', ''),
+                "deadline_date": getattr(bid, 'deadline_date', None),
+                "urgency_level": getattr(bid, 'urgency_level', 'low')
+            }
+            bid_list.append(bid_dict)
+
+        return {
+            "success": True,
+            "query": q,
+            "keywords": keywords,
+            "data": bid_list,
+            "pagination": {
+                "total": len(results),
+                "limit": limit,
+                "offset": offset,
+                "returned": len(bid_list)
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"입찰 검색 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/bids/stats", response_model=BidStatisticsResponse)
+async def get_bid_statistics():
+    """입찰 정보 통계"""
+    try:
+        stats = await DatabaseManager.get_database_stats()
+
+        return {
+            "success": True,
+            "statistics": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"통계 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/test/db")
 async def test_database():
