@@ -5,9 +5,10 @@ Seegene Bid MCP Server 실행 스크립트
 """
 
 import asyncio
-import uvicorn
 import os
 import sys
+
+import uvicorn
 
 # 현재 디렉토리를 Python 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -41,19 +42,41 @@ def main():
     try:
         # 초기화 실행
         asyncio.run(startup())
-        
+
+        ssl_config = {}
+        scheme = "http"
+
+        if settings.SSL_ENABLED:
+            cert_path = os.path.join(os.getcwd(), settings.SSL_CERTFILE)
+            key_path = os.path.join(os.getcwd(), settings.SSL_KEYFILE)
+
+            if os.path.exists(cert_path) and os.path.exists(key_path):
+                ssl_config = {
+                    "ssl_certfile": cert_path,
+                    "ssl_keyfile": key_path
+                }
+                scheme = "https"
+                logger.info("🔐 SSL 인증서가 감지되어 HTTPS로 실행합니다")
+            else:
+                logger.warning(
+                    "SSL이 활성화되어 있지만 인증서를 찾을 수 없습니다. HTTP로 실행합니다"
+                )
+
         logger.info("🚀 Seegene Bid MCP Server 시작")
-        logger.info(f"서버 주소: http://{settings.HOST}:{settings.PORT}")
-        logger.info(f"API 문서: http://{settings.HOST}:{settings.PORT}/docs")
-        logger.info(f"MCP 엔드포인트: http://{settings.HOST}:{settings.PORT}/mcp")
-        
+        logger.info(f"서버 주소: {scheme}://{settings.HOST}:{settings.PORT}")
+        logger.info(f"API 문서: {scheme}://{settings.HOST}:{settings.PORT}/docs")
+        logger.info(f"MCP 엔드포인트: {scheme}://{settings.HOST}:{settings.PORT}/mcp")
+
+        reload_mode = settings.DEBUG and not ssl_config
+
         # 서버 실행
         uvicorn.run(
             "src.main:app",
             host=settings.HOST,
             port=settings.PORT,
-            reload=settings.DEBUG,
-            log_level="info"
+            reload=reload_mode,
+            log_level="info",
+            **ssl_config
         )
         
     except Exception as e:
