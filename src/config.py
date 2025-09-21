@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     
     # 서버 설정
     HOST: str = "127.0.0.1"
-    PORT: int = 8000
+    PORT: int = 8443
     DEBUG: bool = True
     SECRET_KEY: str = "change-me-in-production"
     

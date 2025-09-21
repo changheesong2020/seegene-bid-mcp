@@ -24,25 +24,34 @@ except:
 # Base 모델
 Base = declarative_base()
 
-# 비동기 엔진 생성
-try:
-    async_engine = create_async_engine(
-        "sqlite+aiosqlite:///./seegene_bids.db",
-        echo=False,
-        future=True
-    )
-except:
-    async_engine = None
+# 전역 변수
+async_engine = None
+async_session_maker = None
 
-# 세션 팩토리
-if async_engine:
-    async_session_maker = async_sessionmaker(
-        async_engine,
-        class_=AsyncSession,
-        expire_on_commit=False
-    )
-else:
-    async_session_maker = None
+def create_database_engine():
+    """데이터베이스 엔진과 세션 팩토리 생성"""
+    global async_engine, async_session_maker
+
+    try:
+        async_engine = create_async_engine(
+            "sqlite+aiosqlite:///./seegene_bids.db",
+            echo=False,
+            future=True,
+            connect_args={"timeout": 20}
+        )
+
+        async_session_maker = async_sessionmaker(
+            async_engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        logger.info("데이터베이스 엔진 생성 성공")
+        return True
+
+    except Exception as e:
+        logger.error(f"데이터베이스 엔진 생성 실패: {e}")
+        return False
 
 
 class BidInfoModel(Base):
@@ -91,15 +100,26 @@ async def get_db_session():
 async def init_database():
     """데이터베이스 초기화"""
     try:
+        # 먼저 엔진을 생성
+        if not create_database_engine():
+            raise Exception("Database engine creation failed")
+
         if not async_engine:
             raise Exception("Database engine not available")
-            
-        # 모든 테이블 생성
-        async with async_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        
+
+        # 모든 테이블 생성 - 타임아웃과 함께
+        async with asyncio.timeout(30):
+            async with async_engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
         logger.info("데이터베이스 초기화 완료")
-        
+
+    except asyncio.TimeoutError:
+        logger.error("데이터베이스 초기화 타임아웃")
+        raise Exception("Database initialization timed out")
+    except asyncio.CancelledError:
+        logger.error("데이터베이스 초기화가 취소됨")
+        raise Exception("Database initialization was cancelled")
     except Exception as e:
         logger.error(f"데이터베이스 초기화 실패: {e}")
         raise
