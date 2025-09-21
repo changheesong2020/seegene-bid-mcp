@@ -698,13 +698,24 @@ async def get_all_bids(
             # 결과 변환
             bid_list = []
             for bid in bids:
+                # 안전한 날짜 변환 함수
+                def safe_date_format(date_value):
+                    if date_value is None:
+                        return None
+                    if hasattr(date_value, 'isoformat'):
+                        return date_value.isoformat()
+                    elif isinstance(date_value, str):
+                        return date_value
+                    else:
+                        return str(date_value)
+
                 bid_dict = {
                     "id": bid.id,
                     "title": bid.title,
                     "organization": bid.organization,
                     "bid_number": bid.bid_number,
-                    "announcement_date": bid.announcement_date.isoformat() if bid.announcement_date else None,
-                    "deadline_date": bid.deadline_date.isoformat() if bid.deadline_date else None,
+                    "announcement_date": safe_date_format(bid.announcement_date),
+                    "deadline_date": safe_date_format(bid.deadline_date),
                     "estimated_price": bid.estimated_price,
                     "currency": bid.currency,
                     "source_url": bid.source_url,
@@ -714,7 +725,7 @@ async def get_all_bids(
                     "urgency_level": bid.urgency_level,
                     "status": bid.status,
                     "keywords": bid.keywords,
-                    "created_at": bid.created_at.isoformat() if bid.created_at else None
+                    "created_at": safe_date_format(bid.created_at)
                 }
                 bid_list.append(bid_dict)
 
@@ -765,13 +776,24 @@ async def get_bid_by_id(bid_id: int):
             if not bid:
                 raise HTTPException(status_code=404, detail="해당 입찰 정보를 찾을 수 없습니다")
 
+            # 안전한 날짜 변환 함수
+            def safe_date_format(date_value):
+                if date_value is None:
+                    return None
+                if hasattr(date_value, 'isoformat'):
+                    return date_value.isoformat()
+                elif isinstance(date_value, str):
+                    return date_value
+                else:
+                    return str(date_value)
+
             bid_detail = {
                 "id": bid.id,
                 "title": bid.title,
                 "organization": bid.organization,
                 "bid_number": bid.bid_number,
-                "announcement_date": bid.announcement_date.isoformat() if bid.announcement_date else None,
-                "deadline_date": bid.deadline_date.isoformat() if bid.deadline_date else None,
+                "announcement_date": safe_date_format(bid.announcement_date),
+                "deadline_date": safe_date_format(bid.deadline_date),
                 "estimated_price": bid.estimated_price,
                 "currency": bid.currency,
                 "source_url": bid.source_url,
@@ -782,8 +804,8 @@ async def get_bid_by_id(bid_id: int):
                 "status": bid.status,
                 "keywords": bid.keywords,
                 "extra_data": bid.extra_data,
-                "created_at": bid.created_at.isoformat() if bid.created_at else None,
-                "updated_at": bid.updated_at.isoformat() if bid.updated_at else None
+                "created_at": safe_date_format(bid.created_at),
+                "updated_at": safe_date_format(bid.updated_at)
             }
 
             return {
