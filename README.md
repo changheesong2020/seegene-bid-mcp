@@ -109,9 +109,17 @@ HIGH_VALUE_THRESHOLD_USD=1000000
 ```bash
 # 추천: 실행 스크립트 사용
 python run.py
+```
 
-# 또는 직접 실행
-python -m src.main
+**실행 성공 시 로그:**
+```
+2025-09-21 12:43:36 | INFO | 데이터베이스 엔진 생성 성공
+2025-09-21 12:43:37 | INFO | 데이터베이스 초기화 완료
+2025-09-21 12:43:37 | INFO | 🔐 SSL 인증서가 감지되어 HTTPS로 실행합니다
+2025-09-21 12:43:37 | INFO | 🚀 Seegene Bid MCP Server 시작
+2025-09-21 12:43:37 | INFO | 서버 주소: https://0.0.0.0:8000
+2025-09-21 12:43:37 | INFO | API 문서: https://0.0.0.0:8000/docs
+2025-09-21 12:43:37 | INFO | MCP 엔드포인트: https://0.0.0.0:8000/mcp
 ```
 
 ### 개발 모드 실행
@@ -121,7 +129,49 @@ python -m src.main
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### SSL/HTTPS 지원
+
+서버는 SSL 인증서가 있을 경우 자동으로 HTTPS 모드로 실행됩니다:
+- 인증서 파일: `server.crt`, `server.key`
+- 프로덕션 환경에서 권장
+
 ## 🔧 MCP 클라이언트 연동
+
+### Microsoft Copilot Studio 연결 (권장)
+
+**⚠️ 중요**: 2025년 8월 이후 Streamable transport만 지원됩니다.
+
+#### 1. MCP 온보딩 마법사 사용
+
+1. **Copilot Studio 접속**
+   - Microsoft Copilot Studio에 로그인
+   - 왼쪽 네비게이션에서 **"Agents"** 선택
+
+2. **에이전트 설정**
+   - 연결할 에이전트 선택
+   - **"Tools"** → **"Add a tool"** → **"New tool"** → **"Model Context Protocol"**
+
+3. **서버 정보 입력**
+   ```
+   Server name: Seegene Bid Information Server
+   Server description: 씨젠을 위한 글로벌 입찰 정보 수집 및 분석 시스템
+   Server URL: https://your-domain.com:8000/mcp
+   ```
+
+4. **인증 설정**
+   - 현재: **No authentication**
+   - 프로덕션: **API key** 또는 **OAuth 2.0** 권장
+
+#### 2. 사용 가능한 MCP 도구들
+
+- `search_bids`: 입찰 정보 검색
+- `get_bid_statistics`: 입찰 통계 조회
+- `run_crawler`: 크롤러 실행
+- `get_crawler_results`: 크롤러 결과 조회
+- `search_advanced_bids`: 고급 검색
+- `get_keyword_suggestions`: 키워드 제안
+- `expand_keywords`: 키워드 확장
+- `schedule_crawler`: 크롤러 스케줄링
 
 ### Claude Desktop 설정
 
@@ -222,6 +272,15 @@ python run.py
 PORT=8001 python run.py
 ```
 
+**4. SQLite 연결 오류 해결됨 ✅**
+- **문제**: `asyncio.CancelledError` 발생
+- **해결**: SQLite 파라미터 최적화 및 비동기 처리 개선
+- **결과**: 안정적인 데이터베이스 연결
+
+**5. Windows 연결 오류 최소화**
+- **문제**: `ConnectionResetError` 발생
+- **해결**: Windows 전용 asyncio 설정 및 graceful shutdown 구현
+
 ## 🏥 헬스케어 특화 기능
 
 ### CPV 코드 기반 필터링
@@ -259,14 +318,18 @@ PORT=8001 python run.py
 ## ⚡ 빠른 시작 체크리스트
 
 - [x] 프로젝트 생성 완료
+- [x] 데이터베이스 연결 문제 해결
+- [x] SSL/HTTPS 지원 추가
+- [x] Microsoft Copilot Studio MCP 연동 가이드 작성
 - [ ] `cd seegene-bid-mcp`
 - [ ] `pip install -r requirements.txt`
 - [ ] `.env` 파일 설정 (특히 G2B_API_KEY)
 - [ ] `python run.py` 실행
-- [ ] http://localhost:8000/health 접속 확인
-- [ ] http://localhost:8000/docs에서 API 문서 확인
-- [ ] 크롤링 테스트: `curl -X POST http://localhost:8000/crawl-all`
-- [ ] Claude/Cursor MCP 설정 (선택사항)
+- [ ] https://localhost:8000/health 접속 확인 (HTTPS 주의)
+- [ ] https://localhost:8000/docs에서 API 문서 확인
+- [ ] 크롤링 테스트: `curl -X POST https://localhost:8000/crawl-all`
+- [ ] Microsoft Copilot Studio MCP 연결 (권장)
+- [ ] Claude Desktop MCP 설정 (선택사항)
 
 ## 📞 지원
 
