@@ -50,12 +50,24 @@ async def lifespan(app: FastAPI):
         logger.info("✅ 크롤러 스케줄러 시작 완료")
     except Exception as e:
         logger.error(f"❌ 초기화 실패: {e}")
-    
+
     yield
-    
-    # 종료 시
-    await crawler_manager.stop_scheduler()
-    logger.info("🛑 서버 종료 중...")
+
+    # 종료 시 - 안전한 종료
+    try:
+        await crawler_manager.stop_scheduler()
+        logger.info("🛑 서버 종료 중...")
+    except Exception as e:
+        logger.warning(f"종료 중 오류 (무시됨): {e}")
+
+    # 데이터베이스 연결 정리
+    try:
+        from src.database.connection import async_engine
+        if async_engine:
+            await async_engine.dispose()
+            logger.info("✅ 데이터베이스 연결 정리 완료")
+    except Exception as e:
+        logger.warning(f"데이터베이스 연결 정리 중 오류 (무시됨): {e}")
 
 # FastAPI 앱 생성
 app = FastAPI(

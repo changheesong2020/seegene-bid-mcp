@@ -40,6 +40,10 @@ async def startup():
 def main():
     """메인 실행 함수"""
     try:
+        # Windows에서 asyncio 오류 억제
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
         # 초기화 실행
         asyncio.run(startup())
 
@@ -76,6 +80,7 @@ def main():
             port=settings.PORT,
             reload=reload_mode,
             log_level="info",
+            access_log=False,  # Windows에서 연결 오류 로그 감소
             **ssl_config
         )
         
