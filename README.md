@@ -59,8 +59,8 @@ seegene-bid-mcp/
 cd seegene-bid-mcp
 
 # 가상환경 생성 (권장)
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python -m venv venv # py -3 -m venv .venv
+source .venv/Scripts/activate  # Windows: venv\Scripts\activate
 
 # 의존성 설치
 pip install -r requirements.txt
@@ -79,7 +79,7 @@ nano .env
 **필수 설정 항목:**
 ```env
 # 서버 설정
-HOST=0.0.0.0
+HOST=127.0.0.1
 PORT=8000
 DEBUG=True
 

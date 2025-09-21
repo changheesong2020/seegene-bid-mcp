@@ -3,8 +3,12 @@ Configuration settings for Seegene Bid MCP Server
 """
 
 import os
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from typing import List, Optional
+
+# .env 파일 명시적 로딩
+load_dotenv()
 
 
 class Settings(BaseSettings):

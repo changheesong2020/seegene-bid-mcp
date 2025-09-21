@@ -313,6 +313,9 @@ class BaseCrawler(ABC):
             results = await self.search_bids(keywords)
             self.results = results
 
+            # 결과 개수 저장 (save_results에서 clear되기 전에)
+            total_found = len(results)
+
             # 결과 저장
             await self.save_results()
 
@@ -321,7 +324,7 @@ class BaseCrawler(ABC):
             return {
                 "success": True,
                 "site": self.site_name,
-                "total_found": len(results),
+                "total_found": total_found,
                 "execution_time": round(execution_time, 2),
                 "login_success": login_success
             }

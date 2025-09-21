@@ -33,7 +33,7 @@ class G2BCrawler(BaseCrawler):
         }
         self.api_request_timeout = aiohttp.ClientTimeout(total=20)
         self.api_rate_limit_tps = 30
-        self.api_rows_per_page = 100
+        self.api_rows_per_page = 50  # 페이지 크기 줄여서 API 제한 회피
 
         # 공공데이터개방표준서비스 설정 (백업용)
         self.standard_api_base_url = "http://apis.data.go.kr/1230000/ao/PubDataOpnStdService"
@@ -125,15 +125,15 @@ class G2BCrawler(BaseCrawler):
                 return results
 
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=90)  # 90일로 확장
+            start_date = end_date - timedelta(days=30)  # 30일로 단축하여 API 제한 회피
 
             base_params = {
                 "ServiceKey": self.encoded_api_key,
                 "type": "json",
                 "numOfRows": self.api_rows_per_page,
                 "inqryDiv": "1",  # 등록일시 기준
-                "inqryBgnDt": start_date.strftime("%Y%m%d%H%M"),
-                "inqryEndDt": end_date.strftime("%Y%m%d%H%M"),
+                "inqryBgnDt": start_date.strftime("%Y%m%d0000"),  # 시간을 0000으로 고정
+                "inqryEndDt": end_date.strftime("%Y%m%d2359"),    # 시간을 2359로 고정
             }
             search_params = self._build_search_query_params(category, keywords, start_date, end_date)
 
@@ -258,15 +258,15 @@ class G2BCrawler(BaseCrawler):
                 return results
 
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=90)  # 90일로 확장
+            start_date = end_date - timedelta(days=30)  # 30일로 단축하여 API 제한 회피
 
             params = {
                 "ServiceKey": self.encoded_api_key,
                 "type": "json",
                 "numOfRows": self.api_rows_per_page,
                 "pageNo": 1,
-                "bidNtceBgnDt": start_date.strftime("%Y%m%d%H%M"),
-                "bidNtceEndDt": end_date.strftime("%Y%m%d%H%M"),
+                "bidNtceBgnDt": start_date.strftime("%Y%m%d0000"),  # 시간을 0000으로 고정
+                "bidNtceEndDt": end_date.strftime("%Y%m%d2359"),    # 시간을 2359로 고정
             }
 
             logger.info(f"🔍 표준 API 검색 - 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
@@ -331,13 +331,24 @@ class G2BCrawler(BaseCrawler):
         try:
             if 'response' not in json_data:
                 logger.warning("API 응답에 'response' 키가 없습니다")
+                # ResponseError 키가 있는지 확인
+                if 'nkoneps.com.response.ResponseError' in json_data:
+                    error_info = json_data['nkoneps.com.response.ResponseError']
+                    error_header = error_info.get('header', {})
+                    error_code = error_header.get('resultCode', '')
+                    error_msg = error_header.get('resultMsg', '')
+                    logger.error(f"G2B API 오류 발생 - 코드: {error_code}, 메시지: {error_msg}")
+
+                    if error_code == '07':
+                        logger.error("입력범위값 초과 에러 - API 요청 파라미터를 확인하세요")
+                        logger.error("해결 방법: 1) 검색 기간 단축, 2) 페이지 크기 감소, 3) 파라미터 값 검증")
                 return results
 
             response = json_data['response']
             header = response.get('header', {})
             result_code = header.get('resultCode') or header.get('resultcode')
             if result_code != '00':
-                logger.warning(f"API 오류: {header.get('resultMsg', 'Unknown error')}")
+                logger.warning(f"API 오류: {header.get('resultMsg', 'Unknown error')} (코드: {result_code})")
                 return results
 
             body = response.get('body', {})
@@ -443,13 +454,24 @@ class G2BCrawler(BaseCrawler):
         try:
             if 'response' not in json_data:
                 logger.warning("표준 API 응답에 'response' 키가 없습니다")
+                # ResponseError 키가 있는지 확인
+                if 'nkoneps.com.response.ResponseError' in json_data:
+                    error_info = json_data['nkoneps.com.response.ResponseError']
+                    error_header = error_info.get('header', {})
+                    error_code = error_header.get('resultCode', '')
+                    error_msg = error_header.get('resultMsg', '')
+                    logger.error(f"표준 API 오류 발생 - 코드: {error_code}, 메시지: {error_msg}")
+
+                    if error_code == '07':
+                        logger.error("입력범위값 초과 에러 - API 요청 파라미터를 확인하세요")
+                        logger.error("해결 방법: 1) 검색 기간 단축, 2) 페이지 크기 감소, 3) 파라미터 값 검증")
                 return results
 
             response = json_data['response']
             header = response.get('header', {})
             result_code = header.get('resultCode') or header.get('resultcode')
             if result_code != '00':
-                logger.warning(f"표준 API 오류: {header.get('resultMsg', 'Unknown error')}")
+                logger.warning(f"표준 API 오류: {header.get('resultMsg', 'Unknown error')} (코드: {result_code})")
                 return results
 
             body = response.get('body', {})
