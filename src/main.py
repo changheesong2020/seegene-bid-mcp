@@ -919,9 +919,34 @@ async def test_database():
 
 if __name__ == "__main__":
     import uvicorn
+    import os
+
+    # SSL 설정
+    ssl_config = {}
+    if settings.SSL_ENABLED:
+        cert_path = os.path.join(os.getcwd(), settings.SSL_CERTFILE)
+        key_path = os.path.join(os.getcwd(), settings.SSL_KEYFILE)
+
+        if os.path.exists(cert_path) and os.path.exists(key_path):
+            ssl_config = {
+                "ssl_keyfile": key_path,
+                "ssl_certfile": cert_path
+            }
+            print(f"[SSL] HTTPS enabled with SSL certificates")
+            print(f"[INFO] Server will run on https://{settings.HOST}:{settings.PORT}")
+        else:
+            print(f"[WARNING] SSL certificates not found, running HTTP instead")
+            print(f"[INFO] Server will run on http://{settings.HOST}:{settings.PORT}")
+    else:
+        print(f"[INFO] Server will run on http://{settings.HOST}:{settings.PORT}")
+
+    # SSL과 reload는 잘 작동하지 않으므로 SSL이 활성화된 경우 reload 비활성화
+    reload_mode = settings.DEBUG and not ssl_config
+
     uvicorn.run(
         "src.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=settings.DEBUG
+        reload=reload_mode,
+        **ssl_config
     )

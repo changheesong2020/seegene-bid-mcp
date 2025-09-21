@@ -45,7 +45,12 @@ class Settings(BaseSettings):
     URGENT_DEADLINE_DAYS: int = 3
     HIGH_VALUE_THRESHOLD_KRW: int = 100000000
     HIGH_VALUE_THRESHOLD_USD: int = 1000000
-    
+
+    # SSL 설정
+    SSL_ENABLED: bool = True
+    SSL_CERTFILE: str = "certs/cert.pem"
+    SSL_KEYFILE: str = "certs/key.pem"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
