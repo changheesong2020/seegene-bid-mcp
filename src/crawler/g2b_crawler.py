@@ -26,10 +26,10 @@ class G2BCrawler(BaseCrawler):
         # BidPublicInfoService 설정
         self.api_base_url = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService"
         self.operations = {
-            "cnstwk": ("getBidPblancListInfoCnstwk", "공사"),
-            "servc": ("getBidPblancListInfoServc", "용역"),
-            "thng": ("getBidPblancListInfoThng", "물품"),
-            "frgcpt": ("getBidPblancListInfoFrgcpt", "외자"),
+            "cnstwk": ("getBidPblancListInfoCnstwkPPSSrch", "공사"),
+            "servc": ("getBidPblancListInfoServcPPSSrch", "용역"),
+            "thng": ("getBidPblancListInfoThngPPSSrch", "물품"),
+            "frgcpt": ("getBidPblancListInfoFrgcptPPSSrch", "외자"),
         }
         self.api_request_timeout = aiohttp.ClientTimeout(total=20)
         self.api_rate_limit_tps = 30
@@ -134,8 +134,8 @@ class G2BCrawler(BaseCrawler):
                 "inqryDiv": "1",  # 등록일시 기준
                 "inqryBgnDt": start_date.strftime("%Y%m%d%H%M"),
                 "inqryEndDt": end_date.strftime("%Y%m%d%H%M"),
-                # 일단 모든 데이터를 가져와서 내용 확인
             }
+            search_params = self._build_search_query_params(category, keywords, start_date, end_date)
 
             url = f"{self.api_base_url}/{operation}"
             timeout = self.api_request_timeout
@@ -145,7 +145,7 @@ class G2BCrawler(BaseCrawler):
                 total_count: Optional[int] = None
 
                 while True:
-                    request_params = {**base_params, "pageNo": page_no}
+                    request_params = {**base_params, **search_params, "pageNo": page_no}
                     json_data: Optional[Dict[str, Any]] = None
                     should_break = False
 
@@ -196,6 +196,57 @@ class G2BCrawler(BaseCrawler):
             logger.error(f"카테고리 '{category}' API 검색 중 오류: {e}")
 
         return results
+
+    def _build_search_query_params(
+        self,
+        category: str,
+        keywords: List[str],
+        start_date: datetime,
+        end_date: datetime,
+    ) -> Dict[str, Any]:
+        """나라장터 검색조건을 PPS 전용 검색 파라미터로 매핑"""
+
+        params: Dict[str, Any] = {
+            "searchDtType": "1",  # 1: 등록일시 기준 검색
+            "searchBgnDt": start_date.strftime("%Y%m%d"),
+            "searchEndDt": end_date.strftime("%Y%m%d"),
+        }
+
+        sanitized_keywords: List[str] = []
+        seen = set()
+        for keyword in keywords:
+            if not keyword:
+                continue
+            cleaned = keyword.strip()
+            if not cleaned or cleaned in seen:
+                continue
+            sanitized_keywords.append(cleaned)
+            seen.add(cleaned)
+
+        if sanitized_keywords:
+            keyword_phrase = " ".join(sanitized_keywords)
+            params.update(
+                {
+                    "searchType": "1",  # 1: 공고명 검색
+                    "searchWrd": keyword_phrase,
+                    "bidNtceNm": keyword_phrase,
+                }
+            )
+            logger.info(
+                "📥 나라장터 검색 조건 매핑",
+                extra={
+                    "category": category,
+                    "searchType": "title",
+                    "keywords": sanitized_keywords,
+                },
+            )
+        else:
+            logger.info(
+                "📥 나라장터 검색 조건 매핑 - 키워드 미지정",
+                extra={"category": category},
+            )
+
+        return params
 
     async def _search_standard_api(self, keywords: List[str]) -> List[Dict[str, Any]]:
         """공공데이터개방표준서비스 API 검색"""
