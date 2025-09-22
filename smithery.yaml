@@ -1,0 +1,186 @@
+# Smithery.ai MCP Server Configuration
+name: seegene-bid-mcp
+version: "2.0.0"
+description: "Global procurement bidding information collection and analysis system for Seegene - supports G2B, SAM.gov, TED, and UK FTS with advanced keyword expansion and search capabilities"
+
+# Server Information
+author: "Seegene"
+license: "MIT"
+homepage: "https://github.com/seegene/seegene-bid-mcp"
+
+# MCP Protocol Configuration
+protocol:
+  version: "2024-11-05"
+  transport: "sse"  # Server-Sent Events via FastMCP
+
+# Runtime Configuration
+runtime:
+  type: "python"
+  python_version: ">=3.8"
+  entry_point: "src.main:app"
+  requirements_file: "requirements.txt"
+
+# Environment Variables
+environment:
+  # Required API Keys
+  - name: "G2B_API_KEY"
+    description: "Korean Government e-Procurement Service API key from data.go.kr"
+    required: true
+    secret: true
+
+  - name: "SAMGOV_API_KEY"
+    description: "US SAM.gov API key for federal procurement data"
+    required: false
+    secret: true
+
+  - name: "TED_API_KEY"
+    description: "EU TED (Tenders Electronic Daily) API key"
+    required: false
+    secret: true
+
+  # Server Configuration
+  - name: "HOST"
+    description: "Server host address"
+    default: "127.0.0.1"
+    required: false
+
+  - name: "PORT"
+    description: "Server port"
+    default: "8000"
+    required: false
+
+  - name: "DEBUG"
+    description: "Enable debug mode"
+    default: "True"
+    required: false
+
+  - name: "SECRET_KEY"
+    description: "FastAPI secret key"
+    default: "your-secret-key-change-in-production"
+    required: false
+    secret: true
+
+  # Database
+  - name: "DATABASE_URL"
+    description: "Database connection URL"
+    default: "sqlite+aiosqlite:///./seegene_bids.db"
+    required: false
+
+  # Crawler Settings
+  - name: "HEADLESS_MODE"
+    description: "Run web crawlers in headless mode"
+    default: "True"
+    required: false
+
+  - name: "LOG_LEVEL"
+    description: "Logging level"
+    default: "INFO"
+    required: false
+
+# Capabilities
+capabilities:
+  tools:
+    - name: "search_bids"
+      description: "Search procurement bidding information across multiple international platforms"
+
+    - name: "run_crawler"
+      description: "Execute web crawling for specific procurement sites"
+
+    - name: "run_all_crawlers"
+      description: "Run all configured crawlers for comprehensive data collection"
+
+    - name: "advanced_search_bids"
+      description: "Advanced search with keyword expansion and multilingual support"
+
+    - name: "get_keyword_suggestions"
+      description: "Get intelligent keyword suggestions for better search results"
+
+    - name: "get_database_stats"
+      description: "Retrieve database statistics and health information"
+
+    - name: "get_crawler_status"
+      description: "Check the status of all crawlers and scheduled jobs"
+
+    - name: "add_crawler_schedule"
+      description: "Schedule automatic crawling jobs"
+
+    - name: "get_scheduled_jobs"
+      description: "View all scheduled crawling jobs"
+
+    - name: "reset_database"
+      description: "Reset and clean database (admin function)"
+
+    - name: "clean_dummy_data"
+      description: "Remove test/dummy data from database"
+
+    - name: "get_database_info"
+      description: "Get detailed database information and statistics"
+
+# Supported Procurement Platforms
+platforms:
+  - name: "G2B (Korea)"
+    description: "Korean Government e-Procurement Service (나라장터)"
+    api_required: true
+
+  - name: "SAM.gov (USA)"
+    description: "US Federal Government procurement platform"
+    api_required: true
+
+  - name: "TED (EU)"
+    description: "Tenders Electronic Daily - EU procurement notices"
+    api_required: true
+
+  - name: "UK FTS"
+    description: "UK Find a Tender Service"
+    api_required: false
+
+# Features
+features:
+  - "Multi-platform procurement data collection"
+  - "Advanced keyword expansion and translation"
+  - "Real-time web crawling with Selenium"
+  - "Intelligent relevance scoring"
+  - "Automated scheduling and monitoring"
+  - "RESTful API endpoints"
+  - "Database storage with SQLite"
+  - "Email notifications for urgent bids"
+  - "Comprehensive logging and error handling"
+
+# Installation Instructions
+installation:
+  pre_install: |
+    # Install system dependencies for web automation
+    # Chrome/Chromium browser required for Selenium
+
+  post_install: |
+    # Database will be automatically initialized
+    # Configure API keys in environment variables
+    # Server will start on http://127.0.0.1:8000
+
+# Health Check
+health_check:
+  path: "/health"
+  timeout: 30
+
+# Documentation
+documentation:
+  api_docs: "/docs"
+  readme: "README.md"
+  examples: "examples/"
+
+# Tags for discoverability
+tags:
+  - "procurement"
+  - "bidding"
+  - "government"
+  - "e-procurement"
+  - "korea"
+  - "usa"
+  - "eu"
+  - "uk"
+  - "seegene"
+  - "healthcare"
+  - "medical"
+  - "search"
+  - "crawler"
+  - "api"
