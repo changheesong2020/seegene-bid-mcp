@@ -390,12 +390,21 @@ class G2BCrawler(BaseCrawler):
                     title = self._get_first_non_empty(item, ['bidNtceNm', 'ntceNm', 'bidNm'])
                     organization = self._get_first_non_empty(item, ['ntceInsttNm', 'dminsttNm', 'insttNm'])
 
-                    # 임시로 키워드 필터링 비활성화 - 모든 결과 수집
-                    logger.info(f"📝 [{category_label}] 입찰 제목: {title[:100]}...")
-
-                    relevance_score = self.calculate_relevance_score(title, organization)
+                    # 키워드 관련성 확인
+                    if not self._is_keyword_relevant(title, organization, keywords):
+                        continue
 
                     deadline_date = self._get_first_non_empty(item, ['bidClseDt', 'bidClseDt1', 'bidClseDt2'])
+                    estimated_price_raw = self._get_first_non_empty(
+                        item, ['presmptPrce', 'asignBdgtAmt', 'bdgtAmt', 'refAmt']
+                    )
+
+                    logger.info(f"📝 [{category_label}] {title[:80]}")
+                    logger.info(f"    🏢 발주기관: {organization}")
+                    logger.info(f"    💰 추정가격: {self._format_price(estimated_price_raw)}")
+                    logger.info(f"    📅 마감일: {deadline_date}")
+
+                    relevance_score = self.calculate_relevance_score(title, organization)
                     urgency_level = self.determine_urgency_level(deadline_date)
 
                     bid_number = item.get('bidNtceNo', '')
@@ -464,6 +473,11 @@ class G2BCrawler(BaseCrawler):
         except Exception as e:
             logger.error(f"[{category_label}] API 응답 파싱 중 오류: {e}")
 
+        if results:
+            logger.info(f"✅ [{category_label}] 수집 완료: {len(results)}건")
+        else:
+            logger.info(f"❌ [{category_label}] 수집 결과 없음")
+
         return results
 
     async def _parse_standard_api_response(self, json_data: Dict[str, Any], keywords: List[str]) -> List[Dict[str, Any]]:
@@ -511,19 +525,26 @@ class G2BCrawler(BaseCrawler):
 
             items = self._normalize_items(items)
 
-            for item in items:
+            for idx, item in enumerate(items):
                 try:
                     title = item.get('ntceNm', '')
                     organization = item.get('ntceInsttNm', '')
 
-                    logger.info(f"📋 표준 API 입찰제목: {title}")
+                    # logger.info(f"📋 표준 API 입찰제목: {title}")  # 중복 로그 제거
 
-                    # 임시로 키워드 필터링 비활성화 - 모든 결과 수집
-                    logger.info(f"📝 표준 API 입찰 제목: {title[:100]}...")
-
-                    relevance_score = self.calculate_relevance_score(title, organization)
+                    # 키워드 관련성 확인
+                    if not self._is_keyword_relevant(title, organization, keywords):
+                        continue
 
                     deadline_date = item.get('bidClseDate', '')
+                    estimated_price = item.get('presmptPrce', '')
+
+                    logger.info(f"📝 [{idx+1}] {title[:80]}")
+                    logger.info(f"    🏢 발주기관: {organization}")
+                    logger.info(f"    💰 추정가격: {self._format_price(estimated_price)}")
+                    logger.info(f"    📅 마감일: {deadline_date}")
+
+                    relevance_score = self.calculate_relevance_score(title, organization)
                     urgency_level = self.determine_urgency_level(deadline_date)
 
                     bid_number = item.get('bidNtceNo', '')
@@ -574,6 +595,11 @@ class G2BCrawler(BaseCrawler):
 
         except Exception as e:
             logger.error(f"표준 API 응답 파싱 중 오류: {e}")
+
+        if results:
+            logger.info(f"✅ [표준 API] 수집 완료: {len(results)}건")
+        else:
+            logger.info(f"❌ [표준 API] 수집 결과 없음")
 
         return results
 

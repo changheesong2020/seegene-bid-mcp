@@ -42,6 +42,10 @@ class KeywordExpansionEngine:
             '인플루엔자': ['독감', 'influenza', 'flu'],
             '호흡기감염': ['호흡기 감염', 'respiratory infection'],
             '병원체검사': ['병원체 검사', 'pathogen test'],
+            'HPV': ['Human Papillomavirus', '인유두종바이러스'],
+            'STI': ['Sexually Transmitted Infection', '성매개감염'],
+            'GI': ['Gastrointestinal Infection', '위장관감염'],
+            'RV': ['Respiratory Virus', '호흡기바이러스'],
 
             # 영어 동의어
             'diagnostic kit': ['diagnostic tool', 'test kit', 'assay kit'],
@@ -54,6 +58,25 @@ class KeywordExpansionEngine:
             'rapid test': ['quick test', 'fast test', 'instant test'],
             'antigen test': ['antigen detection', 'antigen assay'],
             'antibody test': ['serology test', 'serological test'],
+            'Human Papillomavirus': ['HPV', 'human papilloma virus'],
+            'Sexually Transmitted Infection': ['STI', 'STD', 'sexually transmitted disease'],
+            'Gastrointestinal Infection': ['GI', 'gastroenteritis', 'enteric infection'],
+            'Respiratory Virus': ['RV', 'respiratory pathogen'],
+            'Salmonella': ['salmonella enterica', 'salmonella spp'],
+            'Shigella': ['shigella spp', 'shigella species'],
+            'Campylobacter': ['campylobacter jejuni', 'campylobacter spp'],
+            'Vibrio': ['vibrio cholerae', 'vibrio parahaemolyticus'],
+            'Chlamydia trachomatis': ['CT', 'chlamydia'],
+            'Neisseria gonorrhoeae': ['NG', 'gonorrhea', 'gonococcus'],
+            'Trichomonas vaginalis': ['TV', 'trichomonas'],
+            'Mycoplasma genitalium': ['MG', 'M. genitalium'],
+            'Mycoplasma hominis': ['MH', 'M. hominis'],
+            'Ureaplasma urealyticum': ['UU', 'U. urealyticum'],
+            'Ureaplasma parvum': ['UP', 'U. parvum'],
+            'Respiratory Syncytial Virus': ['RSV', 'respiratory syncytial virus'],
+            'Parainfluenza Virus': ['PIV', 'parainfluenza'],
+            'Human Rhinovirus': ['HRV', 'rhinovirus'],
+            'Human Metapneumovirus': ['HMPV', 'metapneumovirus'],
         }
 
     def _load_related_terms(self) -> Dict[str, List[str]]:
@@ -69,13 +92,30 @@ class KeywordExpansionEngine:
             '코로나': ['팬데믹', '감염병', '바이러스', '변이'],
             '인플루엔자': ['조류독감', '신종플루', 'H1N1', 'H5N1'],
             '호흡기감염': ['폐렴', '기관지염', '상기도감염', '하기도감염'],
+            'HPV': ['자궁경부암', '생식기 사마귀', 'genital warts'],
+            'STI': ['성병', '생식기감염', 'urogenital infection'],
+            'GI': ['설사', '장염', '식중독', 'diarrhea'],
+            'RV': ['감기', '독감', 'upper respiratory infection'],
 
             # 영어 관련 용어
             'diagnostic kit': ['biosensor', 'microarray', 'ELISA', 'immunoassay'],
             'molecular diagnostic': ['NGS', 'sequencing', 'genotyping', 'mutation detection'],
             'point of care': ['portable device', 'handheld device', 'mobile testing'],
             'COVID test': ['pandemic', 'outbreak', 'epidemic', 'variant'],
-            'respiratory pathogen': ['pneumonia', 'bronchitis', 'COPD', 'asthma']
+            'respiratory pathogen': ['pneumonia', 'bronchitis', 'COPD', 'asthma'],
+            'Human Papillomavirus': ['cervical cancer', 'genital warts', 'HPV screening'],
+            'Sexually Transmitted Infection': ['urogenital infection', 'STD testing', 'sexual health'],
+            'Gastrointestinal Infection': ['enteric pathogen', 'foodborne illness', 'gastroenteritis'],
+            'Respiratory Virus': ['viral pneumonia', 'upper respiratory tract', 'bronchiolitis'],
+            'Salmonella': ['food poisoning', 'typhoid fever', 'gastroenteritis'],
+            'Chlamydia trachomatis': ['urethritis', 'pelvic inflammatory disease', 'trachoma'],
+            'Neisseria gonorrhoeae': ['urethritis', 'pelvic inflammatory disease', 'gonorrhea'],
+            'Respiratory Syncytial Virus': ['bronchiolitis', 'pneumonia', 'infant respiratory'],
+            'Norovirus': ['gastroenteritis', 'food poisoning', 'winter vomiting'],
+            'Rotavirus': ['infantile diarrhea', 'gastroenteritis', 'dehydration'],
+            'Adenovirus': ['conjunctivitis', 'gastroenteritis', 'respiratory infection'],
+            'Giardia lamblia': ['giardiasis', 'traveler diarrhea', 'parasitic infection'],
+            'Cryptosporidium': ['cryptosporidiosis', 'waterborne disease', 'diarrhea']
         }
 
     def _load_translations(self) -> Dict[str, List[str]]:
@@ -90,6 +130,17 @@ class KeywordExpansionEngine:
             '인플루엔자': ['influenza', 'flu'],
             '호흡기감염': ['respiratory infection'],
             '병원체검사': ['pathogen test', 'pathogen detection'],
+            'HPV': ['HPV', '인유두종바이러스'],
+            'STI': ['STI', '성매개감염', '성병'],
+            'GI': ['GI', '위장관감염'],
+            'RV': ['RV', '호흡기바이러스'],
+            '살모넬라': ['Salmonella'],
+            '시겔라': ['Shigella'],
+            '캄필로박터': ['Campylobacter'],
+            '비브리오': ['Vibrio'],
+            '클라미디아': ['Chlamydia trachomatis'],
+            '임질': ['Neisseria gonorrhoeae'],
+            '트리코모나스': ['Trichomonas vaginalis'],
 
             # 영어 → 한국어
             'diagnostic kit': ['진단키트', '진단 키트'],
@@ -99,6 +150,21 @@ class KeywordExpansionEngine:
             'COVID test': ['코로나검사', '코로나 검사'],
             'influenza test': ['인플루엔자검사', '독감검사'],
             'respiratory pathogen': ['호흡기병원체', '호흡기 병원체'],
+            'Human Papillomavirus': ['인유두종바이러스', 'HPV'],
+            'Sexually Transmitted Infection': ['성매개감염', '성병', 'STI'],
+            'Gastrointestinal Infection': ['위장관감염', 'GI'],
+            'Respiratory Virus': ['호흡기바이러스', 'RV'],
+            'Salmonella': ['살모넬라'],
+            'Shigella': ['시겔라'],
+            'Campylobacter': ['캄필로박터'],
+            'Vibrio': ['비브리오'],
+            'Chlamydia trachomatis': ['클라미디아', 'CT'],
+            'Neisseria gonorrhoeae': ['임질균', 'NG'],
+            'Trichomonas vaginalis': ['트리코모나스', 'TV'],
+            'Respiratory Syncytial Virus': ['호흡기세포융합바이러스', 'RSV'],
+            'Norovirus': ['노로바이러스'],
+            'Rotavirus': ['로타바이러스'],
+            'Adenovirus': ['아데노바이러스'],
 
             # 중국어 (간체)
             'diagnostic kit': ['诊断试剂盒', '检测试剂盒'],
@@ -119,6 +185,21 @@ class KeywordExpansionEngine:
             'NGS': ['next generation sequencing', '차세대염기서열분석'],
             'LAMP': ['loop-mediated isothermal amplification', 'LAMP 증폭'],
             'COPD': ['chronic obstructive pulmonary disease', '만성폐쇄성폐질환'],
+            'HPV': ['Human Papillomavirus', '인유두종바이러스'],
+            'STI': ['Sexually Transmitted Infection', '성매개감염'],
+            'GI': ['Gastrointestinal Infection', '위장관감염'],
+            'RV': ['Respiratory Virus', '호흡기바이러스'],
+            'CT': ['Chlamydia trachomatis', '클라미디아'],
+            'NG': ['Neisseria gonorrhoeae', '임질균'],
+            'TV': ['Trichomonas vaginalis', '트리코모나스'],
+            'MG': ['Mycoplasma genitalium', '마이코플라즈마 제니탈리움'],
+            'MH': ['Mycoplasma hominis', '마이코플라즈마 호미니스'],
+            'UU': ['Ureaplasma urealyticum', '유레아플라즈마 우레알리티쿰'],
+            'UP': ['Ureaplasma parvum', '유레아플라즈마 파르붐'],
+            'RSV': ['Respiratory Syncytial Virus', '호흡기세포융합바이러스'],
+            'PIV': ['Parainfluenza Virus', '파라인플루엔자바이러스'],
+            'HRV': ['Human Rhinovirus', '인간리노바이러스'],
+            'HMPV': ['Human Metapneumovirus', '인간메타뉴모바이러스'],
 
             # 전체형 → 축약형
             'polymerase chain reaction': ['PCR'],
@@ -127,6 +208,21 @@ class KeywordExpansionEngine:
             'enzyme-linked immunosorbent assay': ['ELISA'],
             'next generation sequencing': ['NGS'],
             'chronic obstructive pulmonary disease': ['COPD'],
+            'Human Papillomavirus': ['HPV'],
+            'Sexually Transmitted Infection': ['STI'],
+            'Gastrointestinal Infection': ['GI'],
+            'Respiratory Virus': ['RV'],
+            'Chlamydia trachomatis': ['CT'],
+            'Neisseria gonorrhoeae': ['NG'],
+            'Trichomonas vaginalis': ['TV'],
+            'Mycoplasma genitalium': ['MG'],
+            'Mycoplasma hominis': ['MH'],
+            'Ureaplasma urealyticum': ['UU'],
+            'Ureaplasma parvum': ['UP'],
+            'Respiratory Syncytial Virus': ['RSV'],
+            'Parainfluenza Virus': ['PIV'],
+            'Human Rhinovirus': ['HRV'],
+            'Human Metapneumovirus': ['HMPV'],
         }
 
     def expand_keywords(
@@ -201,7 +297,7 @@ class KeywordExpansionEngine:
                         ))
                         seen.add(abbr.lower())
 
-        logger.info(f"키워드 확장: {len(keywords)} → {len(expanded)}")
+        # logger.info(f"키워드 확장: {len(keywords)} → {len(expanded)}")  # 로그 메시지 비활성화
         return expanded
 
     def _get_synonyms(self, keyword: str) -> List[str]:
