@@ -801,3 +801,17 @@ class G2BCrawler(BaseCrawler):
         if len(api_key) <= 8:
             return api_key
         return f"{api_key[:4]}...{api_key[-4:]}"
+
+    def _is_keyword_relevant(self, title: str, organization: str, keywords: List[str]) -> bool:
+        """키워드와 관련성이 있는지 확인"""
+        if not keywords:
+            return True  # 키워드가 없으면 모든 결과 포함
+
+        text = f"{title} {organization}".lower()
+
+        # 제공된 키워드 중 하나라도 포함되어 있으면 관련성 있음
+        for keyword in keywords:
+            if keyword.lower() in text:
+                return True
+
+        return False
