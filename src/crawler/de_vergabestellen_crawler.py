@@ -463,3 +463,12 @@ class GermanyVergabestellenCrawler(BaseCrawler):
                 unique_results.append(result)
 
         return unique_results
+
+    async def login(self) -> bool:
+        """로그인 - 독일 Vergabestellen 대부분 공개 사이트이므로 로그인 불필요"""
+        return True
+
+    async def search_bids(self, keywords: List[str]) -> List[Dict[str, Any]]:
+        """입찰 정보 검색 - crawl 메서드를 호출"""
+        result = await self.crawl(keywords)
+        return result.get("results", [])

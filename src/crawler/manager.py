@@ -13,6 +13,11 @@ from src.crawler.g2b_crawler import G2BCrawler
 from src.crawler.samgov_crawler import SAMGovCrawler
 from src.crawler.ted_crawler import TEDCrawler
 from src.crawler.uk_fts_crawler import UKFTSCrawler
+from src.crawler.fr_boamp_crawler import FranceBOAMPCrawler
+from src.crawler.de_vergabestellen_crawler import GermanyVergabestellenCrawler
+from src.crawler.it_mepa_crawler import ItalyMEPACrawler
+from src.crawler.es_pcsp_crawler import SpainPCSPCrawler
+from src.crawler.nl_tenderned_crawler import NetherlandsTenderNedCrawler
 from src.config import settings, crawler_config
 from src.utils.logger import get_logger
 
@@ -28,7 +33,12 @@ class CrawlerManager:
             "G2B": G2BCrawler(),
             "SAM.gov": SAMGovCrawler(),
             "TED": TEDCrawler(),
-            "UK_FTS": UKFTSCrawler()
+            "UK_FTS": UKFTSCrawler(),
+            "FR_BOAMP": FranceBOAMPCrawler(),
+            "DE_VERGABESTELLEN": GermanyVergabestellenCrawler(),
+            "IT_MEPA": ItalyMEPACrawler(),
+            "ES_PCSP": SpainPCSPCrawler(),
+            "NL_TENDERNED": NetherlandsTenderNedCrawler()
         }
         self.is_running = False
         self.last_run_results = {}
@@ -120,6 +130,16 @@ class CrawlerManager:
             name="UK FTS Evening Crawl"
         )
 
+        # 유럽 크롤러들 - 매일 오전 1시부터 5분 간격으로
+        european_crawlers = ["FR_BOAMP", "DE_VERGABESTELLEN", "IT_MEPA", "ES_PCSP", "NL_TENDERNED"]
+        for i, crawler_name in enumerate(european_crawlers):
+            self.scheduler.add_job(
+                lambda name=crawler_name: self._run_european_crawler(name),
+                CronTrigger(hour=1, minute=i*5),
+                id=f"{crawler_name.lower()}_daily",
+                name=f"{crawler_name} Daily Crawl"
+            )
+
         logger.info("기본 크롤링 스케줄 설정 완료")
 
     async def _run_g2b_crawler(self):
@@ -182,6 +202,21 @@ class CrawlerManager:
         except Exception as e:
             logger.error(f"예약된 UK FTS 크롤링 실패: {e}")
 
+    async def _run_european_crawler(self, crawler_name: str):
+        """유럽 크롤러 실행"""
+        try:
+            logger.info(f"예약된 {crawler_name} 크롤링 시작")
+            result = await self.run_crawler(crawler_name)
+            self.last_run_results[crawler_name] = {
+                **result,
+                "scheduled_run": True,
+                "run_time": datetime.now().isoformat()
+            }
+            logger.info(f"{crawler_name} 크롤링 완료: {result}")
+
+        except Exception as e:
+            logger.error(f"예약된 {crawler_name} 크롤링 실패: {e}")
+
     async def run_crawler(self, site_name: str, keywords: Optional[List[str]] = None) -> Dict[str, Any]:
         """특정 크롤러 실행"""
         if site_name not in self.crawlers:
@@ -202,8 +237,14 @@ class CrawlerManager:
                     else crawler_config.SEEGENE_KEYWORDS['english']
                 )
 
-            # 크롤러 실행
-            result = await crawler.run_crawler(keywords)
+            # 크롤러 실행 (새 크롤러들은 crawl 메서드 사용)
+            if site_name in ["FR_BOAMP", "DE_VERGABESTELLEN", "IT_MEPA", "ES_PCSP", "NL_TENDERNED"]:
+                result = await crawler.crawl(keywords)
+                # 새 크롤러의 결과 필드명을 기존 형식으로 변환
+                if "total_collected" in result:
+                    result["total_found"] = result["total_collected"]
+            else:
+                result = await crawler.run_crawler(keywords)
 
             # 결과 기록
             self.last_run_results[site_name] = {
