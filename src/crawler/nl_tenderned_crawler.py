@@ -6,10 +6,19 @@ Dutch TenderNed 크롤러
 import asyncio
 import aiohttp
 import json
+import ssl
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from urllib.parse import urljoin, quote
+
+
+def create_ssl_context():
+    """SSL 검증 우회를 위한 컨텍스트 생성"""
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
 
 from ..utils.logger import get_logger
 from ..crawler.base import BaseCrawler
@@ -110,8 +119,10 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
         """RSS 피드에서 공고 수집"""
         results = []
 
+        connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30)
+            timeout=aiohttp.ClientTimeout(total=30),
+            connector=connector
         ) as session:
 
             for feed_url in self.rss_feeds:
@@ -136,8 +147,10 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
         """웹 검색을 통한 공고 수집"""
         results = []
 
+        connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=45)
+            timeout=aiohttp.ClientTimeout(total=45),
+            connector=connector
         ) as session:
 
             for keyword in keywords[:3]:  # 최대 3개 키워드
@@ -177,8 +190,10 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
         if not keywords:
             return results
 
+        connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=45)
+            timeout=aiohttp.ClientTimeout(total=45),
+            connector=connector
         ) as session:
 
             for keyword in keywords[:2]:  # API는 최대 2개 키워드만
@@ -226,8 +241,10 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
         try:
             logger.info("네덜란드 TenderNed 메인 포털 크롤링")
 
+            connector = aiohttp.TCPConnector(ssl=create_ssl_context())
             async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=45)
+                timeout=aiohttp.ClientTimeout(total=45),
+                connector=connector
             ) as session:
 
                 headers = {

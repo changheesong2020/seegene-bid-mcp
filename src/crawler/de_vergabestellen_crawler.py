@@ -19,8 +19,16 @@ from ..models.tender_notice import (
     CurrencyCode
 )
 from ..utils.cpv_filter import cpv_filter
+import ssl
 
 logger = get_logger(__name__)
+
+def create_ssl_context():
+    """SSL 검증 우회를 위한 컨텍스트 생성"""
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
 
 
 class GermanyVergabestellenCrawler(BaseCrawler):
@@ -107,8 +115,10 @@ class GermanyVergabestellenCrawler(BaseCrawler):
         """RSS 피드에서 공고 수집"""
         results = []
 
+        connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30)
+            timeout=aiohttp.ClientTimeout(total=30),
+            connector=connector
         ) as session:
 
             for feed_url in self.rss_feeds:
