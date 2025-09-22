@@ -6,6 +6,8 @@ UK Find a Tender Service (FTS) 크롤러
 import asyncio
 import aiohttp
 import json
+import re
+import uuid
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -318,8 +320,8 @@ class UKFTSCrawler(BaseCrawler):
             if not title:
                 return None
 
-            # 공고 URL 생성
-            source_url = f"https://www.contractsfinder.service.gov.uk/notice/{notice_id}"
+            # 공고 URL 생성 (API에서 직접 제공되는 링크 우선)
+            source_url = self._build_source_url(notice_data, notice_id)
 
             # 발주기관 정보
             buyer_info = self._extract_buyer_info(notice_data)
@@ -378,6 +380,83 @@ class UKFTSCrawler(BaseCrawler):
         except Exception as e:
             logger.error(f"❌ UK FTS 공고 파싱 오류: {e}")
             return None
+
+    def _build_source_url(self, notice_data: Dict, notice_id: str) -> str:
+        """공고 세부 페이지 URL 생성."""
+
+        # 1. API 응답에 직접 포함된 URL 사용
+        link_fields = [
+            notice_data.get("uri"),
+            notice_data.get("url"),
+        ]
+
+        links = notice_data.get("links")
+        if isinstance(links, dict):
+            link_fields.extend([
+                links.get("detail"),
+                links.get("details"),
+                links.get("tender"),
+                links.get("web"),
+                links.get("self"),
+            ])
+
+        for candidate in link_fields:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        # 2. Contracts Finder 공고 GUID 패턴 처리
+        if notice_id and self._is_guid(notice_id):
+            return (
+                "https://www.contractsfinder.service.gov.uk/Notice/"
+                f"NoticeView?noticeId={notice_id}"
+            )
+
+        # 3. Find a Tender notice number 패턴 처리
+        tender = notice_data.get("tender")
+        tender_id_candidates = []
+        if isinstance(tender, dict):
+            tender_id_candidates.append(tender.get("id"))
+            identifiers = tender.get("identifiers")
+            if isinstance(identifiers, list):
+                for identifier in identifiers:
+                    if isinstance(identifier, dict):
+                        tender_id_candidates.append(identifier.get("id"))
+
+        tender_id_candidates.append(notice_data.get("ocid"))
+
+        for candidate in tender_id_candidates:
+            if isinstance(candidate, str) and self._looks_like_fts_notice_number(candidate):
+                return self._format_fts_notice_url(candidate)
+
+        # 4. 최종 폴백 - 도메인 루트 반환
+        return "https://www.find-tender.service.gov.uk"
+
+    @staticmethod
+    def _is_guid(value: str) -> bool:
+        """문자열이 GUID 형식인지 확인"""
+
+        try:
+            uuid.UUID(value)
+            return True
+        except (ValueError, AttributeError, TypeError):
+            return False
+
+    @staticmethod
+    def _looks_like_fts_notice_number(value: str) -> bool:
+        """Find a Tender 공고번호 패턴 검사 (예: 031263-2024)."""
+
+        if not isinstance(value, str):
+            return False
+
+        cleaned = value.strip()
+        return bool(re.fullmatch(r"\d{5,6}-\d{4}", cleaned))
+
+    @staticmethod
+    def _format_fts_notice_url(notice_number: str) -> str:
+        """Find a Tender 공고 상세 페이지 URL 생성."""
+
+        cleaned = notice_number.strip()
+        return f"https://www.find-tender.service.gov.uk/Notice/{cleaned}"
 
     def _extract_buyer_info(self, notice_data: Dict) -> Optional[Organization]:
         """발주기관 정보 추출"""
