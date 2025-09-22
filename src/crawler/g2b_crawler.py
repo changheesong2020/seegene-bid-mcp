@@ -213,13 +213,13 @@ class G2BCrawler(BaseCrawler):
             seen.add(cleaned)
 
         if sanitized_keywords:
-            # 각 키워드를 개별적으로 검색하기 위해 OR 조건으로 결합
-            keyword_phrase = " OR ".join(sanitized_keywords)
+            # G2B API는 OR 문법을 지원하지 않으므로 첫 번째 키워드만 대표 검색어로 사용
+            main_keyword = sanitized_keywords[0]
 
             params.update({
                 "searchType": "1",  # 1: 공고명 검색
-                "searchWrd": keyword_phrase,
-                "bidNtceNm": keyword_phrase,
+                "searchWrd": main_keyword,
+                "bidNtceNm": main_keyword,
                 # 추가 검색 옵션
                 "searchCndtnType": "1",  # 검색 조건 타입
                 "kwdSearch": "Y",  # 키워드 검색 활성화
@@ -234,8 +234,10 @@ class G2BCrawler(BaseCrawler):
                 elif i == 2:
                     params[f"bidNtceNm03"] = keyword
 
-            logger.info(f"🔍 G2B 검색 조건: {keyword_phrase}")
-            logger.info(f"📋 검색 키워드: {sanitized_keywords}")
+            logger.info(f"🔍 G2B 대표 검색어: {main_keyword}")
+            if len(sanitized_keywords) > 1:
+                logger.info(f"📋 추가 키워드는 개별 파라미터로 전달: {sanitized_keywords[1:]}")
+            logger.info(f"📋 전체 검색 키워드: {sanitized_keywords}")
         else:
             # 키워드가 없으면 전체 검색
             params.update({
