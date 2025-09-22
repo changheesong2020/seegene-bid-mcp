@@ -31,9 +31,14 @@ from src.models.advanced_filters import (
     KeywordExpansion, AdvancedSearchQuery, KeywordGroup
 )
 from src.services.advanced_search import advanced_search_service
+from src.services.site_compliance import list_site_compliance, get_site_compliance
 from src.utils.keyword_expansion import keyword_engine
 from src.utils.logger import get_logger
 from src.crawler.manager import crawler_manager
+from src.models.site_compliance import (
+    SiteComplianceListResponse,
+    SiteComplianceResponse,
+)
 
 logger = get_logger(__name__)
 
@@ -612,6 +617,32 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "database": db_status,
         "version": "2.0.0"
+    }
+
+
+@app.get("/compliance/sites", response_model=SiteComplianceListResponse)
+async def get_site_compliance_catalog():
+    """지원 대상 조달 사이트의 크롤링 및 법적 유의사항 목록을 반환합니다."""
+
+    entries = list_site_compliance()
+    return {
+        "success": True,
+        "total": len(entries),
+        "data": entries,
+    }
+
+
+@app.get("/compliance/sites/{slug}", response_model=SiteComplianceResponse)
+async def get_site_compliance_detail(slug: str):
+    """특정 조달 사이트의 크롤링 가이드라인을 조회합니다."""
+
+    entry = get_site_compliance(slug)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Site compliance entry not found")
+
+    return {
+        "success": True,
+        "data": entry,
     }
 
 @app.get("/crawler-status")
