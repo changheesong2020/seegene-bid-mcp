@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(netstat:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(python test_g2b_connection.py:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []
