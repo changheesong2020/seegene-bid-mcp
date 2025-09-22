@@ -359,8 +359,23 @@ if FastMCP:
                 "error": str(e)
             }
 
-    # MCP 서버 마운트
-    app.mount("/mcp", mcp.sse_app())
+    # MCP 서버는 앱 설정 후 마운트됨 (아래에서)
+
+# 일반적인 MCP 경로들에 대한 정보 제공
+@app.get("/api/mcp")
+@app.get("/v1/mcp")
+@app.get("/jsonrpc")
+async def mcp_alternative_paths():
+    """다른 MCP 경로들에 대한 안내"""
+    return {
+        "message": "MCP endpoint is available at /mcp",
+        "correct_endpoint": "/mcp",
+        "server_info": {
+            "name": "Seegene Bid Information Server",
+            "protocol": "MCP via FastMCP",
+            "transport": "SSE"
+        }
+    }
 
 # FastAPI 라우트
 @app.get("/")
@@ -928,6 +943,24 @@ async def test_database():
             "message": f"데이터베이스 연결 실패: {e}",
             "error": str(e)
         }
+
+# MCP 서버 마운트 (FastAPI 설정 완료 후)
+if FastMCP:
+    # MCP 상태 엔드포인트를 먼저 정의
+    @app.get("/mcp-status")
+    async def mcp_status():
+        """MCP 서버 상태 확인"""
+        return {
+            "status": "active",
+            "protocol": "MCP (Model Context Protocol)",
+            "transport": "SSE (Server-Sent Events)",
+            "server_name": "Seegene Bid Information Server",
+            "tools_count": len(mcp._tools) if hasattr(mcp, '_tools') else 0,
+            "note": "⚠️ SSE transport deprecated after Aug 2025"
+        }
+
+    # MCP 서버 마운트 (라우트 정의 후)
+    app.mount("/mcp", mcp.sse_app())
 
 if __name__ == "__main__":
     import uvicorn

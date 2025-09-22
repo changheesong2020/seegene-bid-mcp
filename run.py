@@ -44,6 +44,10 @@ def main():
         if sys.platform == 'win32':
             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+            # Windows asyncio 연결 오류 로깅 억제
+            import logging
+            logging.getLogger('asyncio').setLevel(logging.WARNING)
+
         # 초기화 실행
         asyncio.run(startup())
 
