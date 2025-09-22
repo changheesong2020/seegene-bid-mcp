@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     SSL_ENABLED: bool = False
     SSL_CERTFILE: str = "certs/cert.pem"
     SSL_KEYFILE: str = "certs/key.pem"
+    SSL_CUSTOM_CA_BUNDLE: Optional[str] = None
 
     class Config:
         env_file = ".env"

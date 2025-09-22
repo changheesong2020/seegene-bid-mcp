@@ -4,30 +4,67 @@ German Vergabestellen 크롤러
 """
 
 import asyncio
+import ssl
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote, urljoin
+
 import aiohttp
 import json
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
-from urllib.parse import urljoin, quote
 
-from ..utils.logger import get_logger
+from ..config import settings
 from ..crawler.base import BaseCrawler
 from ..models.tender_notice import (
     TenderNotice, TenderStatus, TenderType, ProcurementMethod,
     TenderValue, Organization, Classification, TenderDocument,
-    CurrencyCode
+    CurrencyCode,
 )
 from ..utils.cpv_filter import cpv_filter
-import ssl
+from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "application/rss+xml;q=0.9,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Connection": "keep-alive",
+}
+
 
 def create_ssl_context():
     """SSL 검증 우회를 위한 컨텍스트 생성"""
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
+
+    custom_ca_bundle = getattr(settings, "SSL_CUSTOM_CA_BUNDLE", None)
+    if custom_ca_bundle:
+        ca_path = Path(custom_ca_bundle)
+        if not ca_path.is_absolute():
+            ca_path = Path.cwd() / ca_path
+
+        if ca_path.exists():
+            try:
+                ssl_context.load_verify_locations(cafile=str(ca_path))
+                ssl_context.check_hostname = True
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+                logger.info(f"커스텀 CA 번들을 로드했습니다: {ca_path}")
+            except Exception as exc:
+                logger.warning(f"커스텀 CA 번들 로드 실패: {exc}")
+        else:
+            logger.warning(f"지정된 CA 번들을 찾을 수 없습니다: {ca_path}")
+
     return ssl_context
 
 
@@ -118,14 +155,15 @@ class GermanyVergabestellenCrawler(BaseCrawler):
         connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30),
-            connector=connector
+            connector=connector,
+            headers=DEFAULT_HEADERS,
         ) as session:
 
             for feed_url in self.rss_feeds:
                 try:
                     logger.info(f"독일 RSS 피드 크롤링: {feed_url}")
 
-                    async with session.get(feed_url) as response:
+                    async with session.get(feed_url, headers=DEFAULT_HEADERS) as response:
                         if response.status == 200:
                             content = await response.text()
                             feed_results = await self._parse_rss_feed(content, keywords)
@@ -146,12 +184,15 @@ class GermanyVergabestellenCrawler(BaseCrawler):
         try:
             logger.info(f"독일 포털 크롤링: {portal_name}")
 
+            connector = aiohttp.TCPConnector(ssl=create_ssl_context())
             async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=45)
+                timeout=aiohttp.ClientTimeout(total=45),
+                connector=connector,
+                headers=DEFAULT_HEADERS,
             ) as session:
 
                 # 메인 페이지 접근
-                async with session.get(portal_url) as response:
+                async with session.get(portal_url, headers=DEFAULT_HEADERS) as response:
                     if response.status == 200:
                         html_content = await response.text()
 
