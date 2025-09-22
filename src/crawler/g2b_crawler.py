@@ -192,7 +192,7 @@ class G2BCrawler(BaseCrawler):
         start_date: datetime,
         end_date: datetime,
     ) -> Dict[str, Any]:
-        """나라장터 검색조건을 PPS 전용 검색 파라미터로 매핑"""
+        """나라장터 검색조건을 PPS 전용 검색 파라미터로 매핑 (키워드 검색 강화)"""
 
         params: Dict[str, Any] = {
             "searchDtType": "1",  # 1: 등록일시 기준 검색
@@ -200,6 +200,7 @@ class G2BCrawler(BaseCrawler):
             "searchEndDt": end_date.strftime("%Y%m%d"),
         }
 
+        # 키워드 정리 및 검증
         sanitized_keywords: List[str] = []
         seen = set()
         for keyword in keywords:
@@ -212,32 +213,41 @@ class G2BCrawler(BaseCrawler):
             seen.add(cleaned)
 
         if sanitized_keywords:
-            keyword_phrase = " ".join(sanitized_keywords)
-            params.update(
-                {
-                    "searchType": "1",  # 1: 공고명 검색
-                    "searchWrd": keyword_phrase,
-                    "bidNtceNm": keyword_phrase,
-                }
-            )
-            logger.info(
-                "📥 나라장터 검색 조건 매핑",
-                extra={
-                    "category": category,
-                    "searchType": "title",
-                    "keywords": sanitized_keywords,
-                },
-            )
+            # 각 키워드를 개별적으로 검색하기 위해 OR 조건으로 결합
+            keyword_phrase = " OR ".join(sanitized_keywords)
+
+            params.update({
+                "searchType": "1",  # 1: 공고명 검색
+                "searchWrd": keyword_phrase,
+                "bidNtceNm": keyword_phrase,
+                # 추가 검색 옵션
+                "searchCndtnType": "1",  # 검색 조건 타입
+                "kwdSearch": "Y",  # 키워드 검색 활성화
+            })
+
+            # 개별 키워드로도 검색 (더 넓은 범위)
+            for i, keyword in enumerate(sanitized_keywords[:3]):  # 최대 3개 키워드
+                if i == 0:
+                    params[f"bidNtceNm01"] = keyword
+                elif i == 1:
+                    params[f"bidNtceNm02"] = keyword
+                elif i == 2:
+                    params[f"bidNtceNm03"] = keyword
+
+            logger.info(f"🔍 G2B 검색 조건: {keyword_phrase}")
+            logger.info(f"📋 검색 키워드: {sanitized_keywords}")
         else:
-            logger.info(
-                "📥 나라장터 검색 조건 매핑 - 키워드 미지정",
-                extra={"category": category},
-            )
+            # 키워드가 없으면 전체 검색
+            params.update({
+                "searchType": "0",  # 0: 전체 검색
+                "kwdSearch": "N"
+            })
+            logger.info("📥 G2B 전체 검색 (키워드 미지정)")
 
         return params
 
     async def _search_standard_api(self, keywords: List[str]) -> List[Dict[str, Any]]:
-        """공공데이터개방표준서비스 API 검색"""
+        """공공데이터개방표준서비스 API 검색 (키워드 기반)"""
         results: List[Dict[str, Any]] = []
 
         try:
@@ -248,14 +258,35 @@ class G2BCrawler(BaseCrawler):
             end_date = datetime.now()
             start_date = end_date - timedelta(days=30)  # 30일로 단축하여 API 제한 회피
 
-            params = {
+            # 기본 매개변수
+            base_params = {
                 "ServiceKey": self.encoded_api_key,
                 "type": "json",
                 "numOfRows": self.api_rows_per_page,
                 "pageNo": 1,
-                "bidNtceBgnDt": start_date.strftime("%Y%m%d0000"),  # 시간을 0000으로 고정
-                "bidNtceEndDt": end_date.strftime("%Y%m%d2359"),    # 시간을 2359로 고정
+                "bidNtceBgnDt": start_date.strftime("%Y%m%d0000"),
+                "bidNtceEndDt": end_date.strftime("%Y%m%d2359"),
             }
+
+            # 키워드 검색 매개변수 추가
+            if keywords:
+                # 키워드 정리
+                sanitized_keywords = [kw.strip() for kw in keywords if kw.strip()]
+
+                if sanitized_keywords:
+                    # 첫 번째 키워드를 메인 검색어로 사용
+                    main_keyword = sanitized_keywords[0]
+                    base_params.update({
+                        "bidNtceNm": main_keyword,  # 공고명 검색
+                        "searchWrd": main_keyword,   # 검색어
+                    })
+                    logger.info(f"🔍 표준 API 키워드 검색: {main_keyword}")
+                else:
+                    logger.info("📋 표준 API 전체 검색 (유효한 키워드 없음)")
+            else:
+                logger.info("📋 표준 API 전체 검색 (키워드 미제공)")
+
+            params = base_params
 
             logger.info(f"🔍 표준 API 검색 - 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
 
