@@ -54,6 +54,7 @@ def main():
         ssl_config = {}
         scheme = "http"
 
+        # SSL 설정 확인 (기본값: HTTP)
         if settings.SSL_ENABLED:
             cert_path = os.path.join(os.getcwd(), settings.SSL_CERTFILE)
             key_path = os.path.join(os.getcwd(), settings.SSL_KEYFILE)
@@ -66,9 +67,9 @@ def main():
                 scheme = "https"
                 logger.info("🔐 SSL 인증서가 감지되어 HTTPS로 실행합니다")
             else:
-                logger.warning(
-                    "SSL이 활성화되어 있지만 인증서를 찾을 수 없습니다. HTTP로 실행합니다"
-                )
+                logger.info("SSL 인증서를 찾을 수 없어 HTTP로 실행합니다")
+        else:
+            logger.info("🌐 HTTP 모드로 실행합니다")
 
         logger.info("🚀 Seegene Bid MCP Server 시작")
         logger.info(f"서버 주소: {scheme}://{settings.HOST}:{settings.PORT}")

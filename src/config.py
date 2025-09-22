@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     
     # 서버 설정
     HOST: str = "127.0.0.1"
-    PORT: int = 8443
+    PORT: int = 8000
     DEBUG: bool = True
     SECRET_KEY: str = "change-me-in-production"
     
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     HIGH_VALUE_THRESHOLD_USD: int = 1000000
 
     # SSL 설정
-    SSL_ENABLED: bool = True
+    SSL_ENABLED: bool = False
     SSL_CERTFILE: str = "certs/cert.pem"
     SSL_KEYFILE: str = "certs/key.pem"
 
