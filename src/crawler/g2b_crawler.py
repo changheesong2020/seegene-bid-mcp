@@ -44,8 +44,6 @@ class G2BCrawler(BaseCrawler):
         if not self.encoded_api_key:
             logger.warning("G2B API 키가 설정되지 않았습니다.")
             logger.warning("data.go.kr에서 '누리장터 민간입찰공고서비스' API 키를 발급받아 .env 파일의 G2B_API_KEY에 설정하세요.")
-            logger.warning("더미 모드로 전환됩니다.")
-            self.dummy_mode = True
             return False
 
         logger.info("G2B API 키 인증 준비 완료")
@@ -54,7 +52,6 @@ class G2BCrawler(BaseCrawler):
     def setup_driver(self):
         """API 기반이므로 WebDriver 불필요"""
         logger.info("G2B API 크롤러 - WebDriver 설정 스킵")
-        self.dummy_mode = not bool(self.encoded_api_key)
 
     def teardown_driver(self):
         """API 기반이므로 정리 작업 불필요"""
@@ -62,24 +59,15 @@ class G2BCrawler(BaseCrawler):
 
     async def search_bids(self, keywords: List[str]) -> List[Dict[str, Any]]:
         """입찰 정보 검색"""
-        if self.dummy_mode:
-            logger.info("G2B API 키가 없어 더미 모드로 실행")
-            dummy_data = self.generate_dummy_data(keywords)
-            await self._save_dummy_results(dummy_data)
-            return dummy_data
+        if not self.encoded_api_key:
+            logger.warning("G2B API 키가 없어 검색 불가")
+            return []
 
         all_results: List[Dict[str, Any]] = []
 
         try:
-            # Seegene 키워드 추가
-            from src.config import crawler_config
-
-            seegene_keywords: List[str] = []
-            seegene_keywords.extend(crawler_config.SEEGENE_KEYWORDS['korean'][:3])  # 상위 3개 한국어 키워드
-            seegene_keywords.extend(crawler_config.SEEGENE_KEYWORDS['english'][:3])  # 상위 3개 영어 키워드
-
-            # 사용자 키워드와 Seegene 키워드 결합
-            search_keywords = keywords + seegene_keywords
+            # 사용자 제공 키워드만 사용 (Seegene 키워드 확장 비활성화)
+            search_keywords = keywords
             logger.info(f"🔍 검색 키워드: {search_keywords}")
 
             # BidPublicInfoService API 검색 (카테고리별)
@@ -732,54 +720,6 @@ class G2BCrawler(BaseCrawler):
         except Exception:
             return None
 
-    async def _save_dummy_results(self, dummy_data: List[Dict[str, Any]]):
-        """더미 데이터 저장 시도"""
-        if not dummy_data:
-            return
-
-        try:
-            await DatabaseManager.save_bid_info(dummy_data)
-            logger.info("G2B 더미 데이터 저장 완료")
-        except Exception as e:
-            logger.warning(f"더미 데이터 저장 중 오류: {e}")
-
-    def generate_dummy_data(self, keywords: List[str]) -> List[Dict[str, Any]]:
-        """더미 데이터 생성 (API 키가 없을 때)"""
-        dummy_bids: List[Dict[str, Any]] = []
-
-        categories = ["용역", "물품", "공사", "기타"]
-
-        for i, keyword in enumerate(keywords[:2]):  # 최대 2개 키워드
-            for j, category in enumerate(categories):
-                dummy_bid = {
-                    "title": f"[API 테스트] {keyword} 관련 {category} 입찰공고 {i+1}-{j+1}",
-                    "organization": f"테스트기관{i+1}-{j+1}",
-                    "bid_number": f"API-TEST-{datetime.now().strftime('%Y%m%d')}-{i+1:02d}{j+1:02d}",
-                    "announcement_date": datetime.now().strftime("%Y-%m-%d"),
-                    "deadline_date": (datetime.now() + timedelta(days=7+i+j)).strftime("%Y-%m-%d"),
-                    "estimated_price": f"{(i+j+1)*15000000:,}원",
-                    "currency": "KRW",
-                    "source_url": f"https://test.g2b.go.kr/bid/{i+1}{j+1}",
-                    "source_site": "G2B",
-                    "country": "KR",
-                    "keywords": [keyword],
-                    "relevance_score": 8.5 - (i+j)*0.5,
-                    "urgency_level": "medium",
-                    "status": "active",
-                    "extra_data": {
-                        "crawled_at": datetime.now().isoformat(),
-                        "category": category,
-                        "bid_notice_order": f"{j+1}",
-                        "api_data": False,
-                        "api_service": "BidPublicInfoService",
-                        "dummy_data": True,
-                        "note": "G2B API 키 없음으로 인한 테스트 데이터"
-                    }
-                }
-                dummy_bids.append(dummy_bid)
-
-        logger.info(f"G2B API 더미 데이터 {len(dummy_bids)}건 생성")
-        return dummy_bids
 
     def _prepare_service_key(self, api_key: Optional[str]) -> Optional[str]:
         """요청에 사용할 서비스 키를 전처리"""

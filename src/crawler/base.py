@@ -37,7 +37,12 @@ class BaseCrawler(ABC):
         self.dummy_mode = False
 
     def setup_driver(self):
-        """WebDriver 설정"""
+        """WebDriver 설정 (API 기반 크롤러는 스킵)"""
+        # API 기반 크롤러는 WebDriver 불필요
+        if self.site_name in ["G2B", "UK_FTS", "TED"]:
+            logger.info(f"{self.site_name} API 크롤러 - WebDriver 설정 스킵")
+            return
+
         try:
             chrome_options = Options()
 
@@ -94,21 +99,19 @@ class BaseCrawler(ABC):
 
                 except Exception as edge_error:
                     logger.warning(f"Edge 드라이버도 실패: {edge_error}")
-
-                    # 실제 크롤링 대신 더미 데이터 반환 모드
-                    logger.warning("WebDriver 초기화 실패 - 더미 데이터 모드로 전환")
+                    logger.warning("WebDriver 초기화 실패 - API 전용 모드")
                     self.driver = None
-                    self.dummy_mode = True
 
             if self.driver:
                 self.wait = WebDriverWait(self.driver, 10)
                 logger.info(f"{self.site_name} 크롤러 WebDriver 초기화 완료")
             else:
-                logger.info(f"{self.site_name} 크롤러 더미 모드로 초기화 완료")
+                logger.info(f"{self.site_name} 크롤러 API 전용 모드로 초기화")
 
         except Exception as e:
             logger.error(f"WebDriver 설정 실패: {e}")
-            raise
+            logger.info("API 전용 모드로 계속 진행")
+            self.driver = None
 
     def teardown_driver(self):
         """WebDriver 정리"""
@@ -198,34 +201,9 @@ class BaseCrawler(ABC):
         return None
 
     def generate_dummy_data(self, keywords: List[str]) -> List[Dict[str, Any]]:
-        """더미 데이터 생성 (WebDriver 실패 시 사용)"""
-        dummy_bids = []
-
-        for i, keyword in enumerate(keywords[:3]):  # 최대 3개 키워드
-            dummy_bid = {
-                "title": f"[테스트] {keyword} 관련 입찰공고 {i+1}",
-                "organization": f"테스트기관{i+1}",
-                "bid_number": f"TEST-{self.site_name}-{datetime.now().strftime('%Y%m%d')}-{i+1:03d}",
-                "announcement_date": datetime.now().strftime("%Y-%m-%d"),
-                "deadline_date": (datetime.now() + timedelta(days=7+i)).strftime("%Y-%m-%d"),
-                "estimated_price": f"{(i+1)*10000000:,}원" if self.country == "KR" else f"${(i+1)*100000:,}",
-                "currency": "KRW" if self.country == "KR" else "USD",
-                "source_url": f"https://test.{self.site_name.lower()}.com/bid/{i+1}",
-                "source_site": self.site_name,
-                "country": self.country,
-                "keywords": [keyword],
-                "relevance_score": 8.0 - i,
-                "urgency_level": "medium",
-                "status": "active",
-                "extra_data": {
-                    "crawled_at": datetime.now().isoformat(),
-                    "dummy_data": True,
-                    "note": "WebDriver 실패로 인한 테스트 데이터"
-                }
-            }
-            dummy_bids.append(dummy_bid)
-
-        return dummy_bids
+        """더미 데이터 생성 비활성화"""
+        logger.warning(f"{self.site_name}: 더미 데이터 생성이 비활성화되었습니다")
+        return []
 
     def safe_find_element(self, by, value, timeout=5):
         """안전한 요소 찾기"""
@@ -287,22 +265,7 @@ class BaseCrawler(ABC):
             # WebDriver 설정
             self.setup_driver()
 
-            # 더미 모드인 경우 더미 데이터 반환
-            if self.dummy_mode:
-                logger.info(f"{self.site_name}: 더미 모드로 실행")
-                results = self.generate_dummy_data(keywords)
-                self.results = results
-                await self.save_results()
-                execution_time = time.time() - start_time
-
-                return {
-                    "success": True,
-                    "site": self.site_name,
-                    "total_found": len(results),
-                    "execution_time": round(execution_time, 2),
-                    "login_success": False,
-                    "note": "더미 데이터 모드 (WebDriver 실패)"
-                }
+            # 더미 모드 비활성화 - API 전용 모드로 진행
 
             # 로그인
             login_success = await self.login()

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from ..utils.logger import get_logger
+from ..config import settings
 
 logger = get_logger(__name__)
 
@@ -28,20 +29,29 @@ class TEDCrawler(BaseCrawler):
     def __init__(self):
         super().__init__("TED", "EU")
 
-        # TED eSenders API 설정 (실제 사이트에서 확인된 URL 구조)
-        self.api_base_url = "https://ted.europa.eu"
-        self.notices_endpoint = "/api/v3.0/notices/search"
+        # TED API 설정 (2025년 공식 API)
+        self.api_base_url = "https://api.ted.europa.eu"
+        self.api_version = "v3.0"
+        self.search_endpoint = f"{self.api_base_url}/{self.api_version}/notices/search"
 
         # 세션 설정
         self.session = None
+        self.api_key = settings.TED_API_KEY  # 환경변수에서 API 키 로드
 
-        # 검색 매개변수
-        self.default_params = {
-            "scope": "3",  # 계약 공고
-            "pageSize": "100",
-            "sortField": "PD",  # 공개일순
-            "sortOrder": "desc"
-        }
+        # 헬스케어 관련 CPV 코드들
+        self.healthcare_cpv_codes = [
+            "33140000",  # Medical equipment
+            "33141000",  # Medical diagnostic equipment
+            "33142000",  # Medical imaging equipment
+            "33150000",  # Medical consumables
+            "33696000",  # Laboratory reagents
+            "85100000",  # Health services
+            "85110000",  # Hospital services
+            "85140000",  # Medical services
+            "85145000",  # Medical laboratory services
+            "73000000",  # Research and development services
+            "73140000",  # Medical research services
+        ]
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """HTTP 세션 반환"""
@@ -115,46 +125,352 @@ class TEDCrawler(BaseCrawler):
 
         return matched_keywords
 
-    async def collect_bids(self, days: int = 30) -> List[TenderNotice]:
-        """TED에서 입찰 공고 수집 (현재 API 접근 불가로 더미 모드)"""
-        logger.info(f"🇪🇺 TED에서 최근 {days}일간의 입찰공고 수집 시작")
-        logger.warning("⚠️ TED API 접근 불가로 더미 데이터를 생성합니다")
-
-        all_notices = []
-
+    async def _fetch_ted_notices(self, session: aiohttp.ClientSession, start_date: datetime, end_date: datetime) -> List[Dict]:
+        """TED eSenders 포털에서 공고 데이터 수집"""
         try:
-            # 더미 데이터 생성
-            dummy_notices = self._generate_dummy_notices(days)
-            all_notices.extend(dummy_notices)
+            # TED API는 제한적이므로 바로 RSS 피드와 웹 스크래핑 시도
+            logger.info("🔍 TED RSS 피드와 웹 스크래핑으로 데이터 수집 시도")
 
-            # 헬스케어 관련 필터링
-            healthcare_notices = []
-            for notice in all_notices:
-                cpv_codes = [cls.code for cls in notice.classifications if cls.scheme == "CPV"]
+            # RSS 피드 먼저 시도
+            rss_results = await self._fetch_ted_rss_data(session, start_date, end_date)
+            if rss_results:
+                logger.info(f"📰 TED RSS에서 {len(rss_results)}건 수집")
+                return rss_results
 
-                if cpv_filter.is_healthcare_relevant(
-                    cpv_codes=cpv_codes,
-                    title=notice.title,
-                    description=notice.description or "",
-                    language="en",
-                    threshold=0.2
-                ):
-                    notice.healthcare_relevant = True
-                    notice.matched_keywords = cpv_filter.get_matched_keywords(
-                        f"{notice.title} {notice.description or ''}", "en"
-                    )
-                    healthcare_notices.append(notice)
+            # RSS 실패 시 웹 스크래핑 시도
+            web_results = await self._fetch_ted_web_data(session, start_date, end_date)
+            if web_results:
+                logger.info(f"🌐 TED 웹에서 {len(web_results)}건 수집")
+                return web_results
 
-            logger.info(f"✅ TED 수집 완료: 전체 {len(all_notices)}건 중 헬스케어 관련 {len(healthcare_notices)}건")
-            return healthcare_notices
-
-        except Exception as e:
-            logger.error(f"❌ TED 수집 실패: {e}")
+            logger.warning("⚠️ TED RSS와 웹 모두에서 데이터 수집 실패")
             return []
 
-        finally:
-            if self.session and not self.session.closed:
-                await self.session.close()
+        except Exception as e:
+            logger.error(f"❌ TED 데이터 수집 전체 실패: {e}")
+            return []
+
+    async def _fetch_ted_web_data(self, session: aiohttp.ClientSession, start_date: datetime, end_date: datetime) -> List[Dict]:
+        """TED 웹사이트에서 직접 데이터 수집"""
+        try:
+            # TED 검색 페이지 URL (더 간단한 접근)
+            search_url = "https://ted.europa.eu/browse"
+
+            params = {
+                "q": "medical OR health OR healthcare OR diagnostic OR laboratory",  # 헬스케어 키워드
+                "date": f"{start_date.strftime('%Y-%m-%d')}~{end_date.strftime('%Y-%m-%d')}",
+                "pageSize": "50"
+            }
+
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+
+            async with session.get(search_url, params=params, headers=headers) as response:
+                if response.status == 200:
+                    html_content = await response.text()
+                    return self._parse_ted_html(html_content)
+                else:
+                    logger.warning(f"⚠️ TED 웹 접근 실패: {response.status}")
+                    return []
+
+        except Exception as e:
+            logger.warning(f"⚠️ TED 웹 스크래핑 실패: {e}")
+            return []
+
+    def _parse_ted_html(self, html_content: str) -> List[Dict]:
+        """TED HTML 페이지 파싱"""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            notices = []
+            # TED 검색 결과에서 공고 항목 찾기
+            notice_items = soup.find_all(['div', 'article'], class_=lambda x: x and ('notice' in x.lower() or 'result' in x.lower()))
+
+            for item in notice_items[:20]:  # 최대 20개
+                try:
+                    title_elem = item.find(['h1', 'h2', 'h3', 'a'], class_=lambda x: x and 'title' in x.lower())
+                    if not title_elem:
+                        title_elem = item.find('a')
+
+                    if title_elem:
+                        title = title_elem.get_text(strip=True)
+                        link = title_elem.get('href', '')
+
+                        if link and not link.startswith('http'):
+                            link = f"https://ted.europa.eu{link}"
+
+                        if title and self._contains_healthcare_keywords(title, ""):
+                            notice_data = {
+                                "title": title,
+                                "link": link,
+                                "description": title,  # HTML에서 설명 추출이 어려우면 제목 사용
+                                "publication_date": datetime.now().strftime("%Y-%m-%d"),
+                                "source": "ted_web"
+                            }
+                            notices.append(notice_data)
+
+                except Exception as e:
+                    logger.debug(f"HTML 항목 파싱 실패: {e}")
+                    continue
+
+            logger.info(f"🌐 TED HTML에서 {len(notices)}건의 헬스케어 관련 공고 파싱")
+            return notices
+
+        except ImportError:
+            logger.warning("BeautifulSoup 없음, HTML 파싱 건너뜀")
+            return []
+        except Exception as e:
+            logger.error(f"❌ TED HTML 파싱 실패: {e}")
+            return []
+
+    async def _fetch_ted_rss_data(self, session: aiohttp.ClientSession, start_date: datetime, end_date: datetime) -> List[Dict]:
+        """TED RSS 피드에서 데이터 수집 (API 대체 방법)"""
+        try:
+            # 여러 TED RSS 피드 URL 시도
+            rss_urls = [
+                "https://ted.europa.eu/TED/rss/rss.xml",
+                "https://ted.europa.eu/rss",
+                "https://publications.europa.eu/ted/rss.xml"
+            ]
+
+            for rss_url in rss_urls:
+                try:
+                    logger.debug(f"🔗 RSS 피드 시도: {rss_url}")
+                    async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                        if response.status == 200:
+                            xml_content = await response.text()
+                            if xml_content.strip():
+                                results = self._parse_ted_rss(xml_content, start_date, end_date)
+                                if results:
+                                    logger.info(f"✅ RSS 피드 성공: {rss_url}")
+                                    return results
+                            else:
+                                logger.debug(f"빈 RSS 응답: {rss_url}")
+                        else:
+                            logger.debug(f"RSS 피드 오류 {response.status}: {rss_url}")
+
+                except asyncio.TimeoutError:
+                    logger.debug(f"RSS 피드 타임아웃: {rss_url}")
+                except Exception as e:
+                    logger.debug(f"RSS 피드 실패: {rss_url} - {e}")
+
+            logger.warning("⚠️ 모든 TED RSS 피드 실패")
+            return []
+
+        except Exception as e:
+            logger.error(f"❌ TED RSS 피드 요청 실패: {e}")
+            return []
+
+    def _parse_ted_rss(self, xml_content: str, start_date: datetime, end_date: datetime) -> List[Dict]:
+        """TED RSS XML 파싱"""
+        import xml.etree.ElementTree as ET
+        import re
+
+        try:
+            # BeautifulSoup으로 먼저 시도 (더 관대한 파싱)
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(xml_content, 'xml')
+                items = soup.find_all('item')
+
+                notices = []
+                for item in items:
+                    try:
+                        title_tag = item.find('title')
+                        link_tag = item.find('link')
+                        desc_tag = item.find('description')
+                        date_tag = item.find('pubDate')
+
+                        if title_tag and link_tag:
+                            title_text = title_tag.get_text() if title_tag else ""
+                            link_text = link_tag.get_text() if link_tag else ""
+                            desc_text = desc_tag.get_text() if desc_tag else ""
+                            date_text = date_tag.get_text() if date_tag else ""
+
+                            if self._contains_healthcare_keywords(title_text, desc_text):
+                                notice_data = {
+                                    "title": title_text,
+                                    "link": link_text,
+                                    "description": desc_text,
+                                    "publication_date": date_text,
+                                    "source": "ted_rss"
+                                }
+                                notices.append(notice_data)
+
+                    except Exception as e:
+                        logger.debug(f"RSS 항목 스킵: {e}")
+                        continue
+
+                logger.info(f"📰 TED RSS에서 {len(notices)}건의 헬스케어 관련 공고 발견 (BeautifulSoup)")
+                return notices
+
+            except ImportError:
+                logger.debug("BeautifulSoup 없음, ElementTree로 대체")
+
+            # ElementTree로 시도
+            # XML 내용 정리 (잘못된 문자 제거)
+            cleaned_xml = self._clean_xml_content(xml_content)
+
+            root = ET.fromstring(cleaned_xml)
+            notices = []
+
+            for item in root.findall('.//item'):
+                try:
+                    title = item.find('title')
+                    link = item.find('link')
+                    description = item.find('description')
+                    pub_date = item.find('pubDate')
+
+                    if title is not None and link is not None:
+                        # 헬스케어 관련 키워드 필터링
+                        title_text = title.text or ""
+                        desc_text = description.text if description is not None else ""
+
+                        if self._contains_healthcare_keywords(title_text, desc_text):
+                            notice_data = {
+                                "title": title_text,
+                                "link": link.text,
+                                "description": desc_text,
+                                "publication_date": pub_date.text if pub_date is not None else "",
+                                "source": "ted_rss"
+                            }
+                            notices.append(notice_data)
+
+                except Exception as e:
+                    logger.warning(f"⚠️ RSS 항목 파싱 실패: {e}")
+                    continue
+
+            logger.info(f"📰 TED RSS에서 {len(notices)}건의 헬스케어 관련 공고 발견")
+            return notices
+
+        except Exception as e:
+            logger.error(f"❌ TED RSS XML 파싱 실패: {e}")
+            # 파싱 실패 시 빈 배열 반환
+            return []
+
+    def _clean_xml_content(self, xml_content: str) -> str:
+        """XML 내용에서 잘못된 문자 제거"""
+        import re
+        import html
+
+        try:
+            # 1. 잘못된 XML 문자 제거 (제어 문자 등)
+            xml_content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', xml_content)
+
+            # 2. HTML 엔티티 디코딩
+            xml_content = html.unescape(xml_content)
+
+            # 3. 잘못된 엔티티 참조 수정
+            xml_content = xml_content.replace('&nbsp;', ' ')
+            xml_content = xml_content.replace('&rsquo;', "'")
+            xml_content = xml_content.replace('&lsquo;', "'")
+            xml_content = xml_content.replace('&rdquo;', '"')
+            xml_content = xml_content.replace('&ldquo;', '"')
+            xml_content = xml_content.replace('&ndash;', '-')
+            xml_content = xml_content.replace('&mdash;', '-')
+
+            # 4. XML 특수 문자 이스케이프
+            xml_content = xml_content.replace('&', '&amp;')
+            xml_content = xml_content.replace('<', '&lt;')
+            xml_content = xml_content.replace('>', '&gt;')
+
+            # 5. XML 태그는 다시 복원
+            xml_content = re.sub(r'&lt;(/?\w+[^&]*?)&gt;', r'<\1>', xml_content)
+
+            # 6. CDATA 섹션 정리
+            xml_content = re.sub(r'<!\[CDATA\[(.*?)\]\]>', lambda m: self._escape_cdata_content(m.group(1)), xml_content, flags=re.DOTALL)
+
+            # 7. 빈 태그나 잘못된 구조 제거
+            xml_content = re.sub(r'<(\w+)[^>]*></\1>', '', xml_content)
+
+            return xml_content
+
+        except Exception as e:
+            logger.warning(f"⚠️ XML 정리 중 오류: {e}")
+            return xml_content
+
+    def _escape_cdata_content(self, content: str) -> str:
+        """CDATA 내용 이스케이프"""
+        content = content.replace('&', '&amp;')
+        content = content.replace('<', '&lt;')
+        content = content.replace('>', '&gt;')
+        return content
+
+    def _contains_healthcare_keywords(self, title: str, description: str) -> bool:
+        """헬스케어 관련 키워드 포함 여부 확인 (더 넓은 범위)"""
+        text = f"{title} {description}".lower()
+        healthcare_keywords = [
+            # 기본 헬스케어 키워드
+            "medical", "healthcare", "health", "diagnostic", "laboratory", "hospital",
+            "pharmaceutical", "biomedical", "clinical", "equipment", "device",
+            "reagent", "vaccine", "medicine", "therapy", "surgical",
+            # 추가 키워드 (더 넓은 범위)
+            "biotechnology", "biotech", "life science", "research", "testing",
+            "analysis", "screening", "monitoring", "treatment", "care",
+            "medic", "pharma", "bio", "lab", "test", "drug", "molecular",
+            # EU 언어 키워드
+            "médical", "santé", "medizin", "gesundheit", "medicale", "salute"
+        ]
+
+        # 키워드 매칭 확인
+        matched = any(keyword in text for keyword in healthcare_keywords)
+
+        # 추가로 CPV 코드 패턴 확인 (33으로 시작하는 의료 장비)
+        if not matched and "33" in text:
+            # 33140000 (Medical equipment) 등의 패턴
+            import re
+            cpv_pattern = r'33\d{6}'
+            if re.search(cpv_pattern, text):
+                matched = True
+
+        return matched
+
+    def _is_healthcare_related(self, tender_notice: TenderNotice) -> bool:
+        """TenderNotice가 헬스케어 관련인지 확인"""
+        # CPV 코드 확인
+        for classification in tender_notice.classifications:
+            if classification.scheme == "CPV":
+                cpv_code = classification.code
+                for healthcare_cpv in self.healthcare_cpv_codes:
+                    if cpv_code.startswith(healthcare_cpv[:4]):  # 앞 4자리 매칭
+                        return True
+
+        # 제목과 설명에서 헬스케어 키워드 확인
+        text = f"{tender_notice.title} {tender_notice.description or ''}".lower()
+        return self._contains_healthcare_keywords(tender_notice.title, tender_notice.description or "")
+
+    async def collect_bids(self, days: int = 30) -> List[TenderNotice]:
+        """TED에서 입찰 공고 수집"""
+        logger.info(f"🇪🇺 TED에서 최근 {days}일간의 입찰공고 수집 시작")
+
+        try:
+            session = await self._get_session()
+            tender_notices = []
+
+            # 날짜 범위 설정
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+
+            # TED eSenders 포털을 통한 데이터 수집
+            notices_data = await self._fetch_ted_notices(session, start_date, end_date)
+
+            if notices_data:
+                for notice_data in notices_data:
+                    tender_notice = await self._parse_ted_notice(notice_data)
+                    if tender_notice:
+                        # CPV 필터 적용 (헬스케어 관련만)
+                        if self._is_healthcare_related(tender_notice):
+                            tender_notices.append(tender_notice)
+
+            logger.info(f"✅ TED에서 {len(tender_notices)}건의 헬스케어 관련 입찰공고 수집 완료")
+            return tender_notices
+
+        except Exception as e:
+            logger.error(f"❌ TED 데이터 수집 실패: {e}")
+            return []
 
     async def _fetch_notices_page(self, start_date: datetime, end_date: datetime, page: int) -> Optional[Dict]:
         """TED 웹사이트에서 특정 페이지 데이터 가져오기 (웹 스크래핑)"""
@@ -187,29 +503,39 @@ class TEDCrawler(BaseCrawler):
     async def _parse_ted_notice(self, notice_data: Dict) -> Optional[TenderNotice]:
         """TED 공고 데이터를 TenderNotice로 변환"""
         try:
-            # 기본 정보 추출
-            notice_id = notice_data.get("ND", "")
-            title = notice_data.get("TI", "").strip()
+            # RSS 데이터인지 API 데이터인지 확인
+            if notice_data.get("source") == "ted_rss":
+                return self._parse_rss_notice(notice_data)
+
+            # API 데이터 파싱
+            notice_id = notice_data.get("ND", notice_data.get("id", ""))
+            title = notice_data.get("TI", notice_data.get("title", "")).strip()
 
             if not title:
                 return None
 
             # 공고 URL 생성
-            source_url = f"https://ted.europa.eu/udl?uri=TED:NOTICE:{notice_id}:TEXT:EN:HTML"
+            if "link" in notice_data:
+                source_url = notice_data["link"]
+            else:
+                source_url = f"https://ted.europa.eu/udl?uri=TED:NOTICE:{notice_id}:TEXT:EN:HTML"
 
             # 발주기관 정보
             aa_name = notice_data.get("AA", {}).get("ON", "Unknown Authority")
-            country_code = notice_data.get("CY", "EU")
+            if isinstance(notice_data.get("AA"), str):
+                aa_name = notice_data.get("AA", "Unknown Authority")
+
+            country_code = notice_data.get("CY", notice_data.get("country", "EU"))
 
             buyer = Organization(
                 name=aa_name,
                 country_code=country_code,
-                identifier=notice_data.get("AA", {}).get("OI", "")
+                identifier=notice_data.get("AA", {}).get("OI", "") if isinstance(notice_data.get("AA"), dict) else ""
             )
 
             # 날짜 정보
-            published_date = self._parse_ted_date(notice_data.get("PD"))
-            deadline_date = self._parse_ted_date(notice_data.get("TD"))
+            published_date = self._parse_ted_date(notice_data.get("PD", notice_data.get("publication_date")))
+            deadline_date = self._parse_ted_date(notice_data.get("TD", notice_data.get("deadline_date")))
 
             # 입찰 유형 및 상태 결정
             tender_type = self._determine_tender_type(notice_data)
@@ -227,7 +553,7 @@ class TEDCrawler(BaseCrawler):
             # TenderNotice 객체 생성
             tender_notice = TenderNotice(
                 source_system="TED",
-                source_id=notice_id,
+                source_id=notice_id or f"ted_{hash(title)}",
                 source_url=source_url,
                 title=title,
                 description=description,
@@ -248,6 +574,76 @@ class TEDCrawler(BaseCrawler):
         except Exception as e:
             logger.error(f"❌ TED 공고 파싱 오류: {e}")
             return None
+
+    def _parse_rss_notice(self, notice_data: Dict) -> Optional[TenderNotice]:
+        """RSS 피드 데이터를 TenderNotice로 변환"""
+        try:
+            title = notice_data.get("title", "").strip()
+            if not title:
+                return None
+
+            # RSS에서 추출한 기본 정보
+            source_url = notice_data.get("link", "")
+            description = notice_data.get("description", "")
+
+            # 날짜 파싱 (RSS pubDate 형식)
+            pub_date_str = notice_data.get("publication_date", "")
+            published_date = self._parse_rss_date(pub_date_str)
+
+            # 기본 조직 정보 (RSS에서는 제한적)
+            buyer = Organization(
+                name="EU Authority",
+                country_code="EU",
+                identifier=""
+            )
+
+            # 기본 분류 (헬스케어로 가정)
+            classifications = [Classification(
+                scheme="CPV",
+                code="33140000",  # Medical equipment
+                description="Medical equipment"
+            )]
+
+            tender_notice = TenderNotice(
+                source_system="TED",
+                source_id=f"ted_rss_{hash(title)}",
+                source_url=source_url,
+                title=title,
+                description=description,
+                tender_type=TenderType.GOODS,
+                status=TenderStatus.ACTIVE,
+                buyer=buyer,
+                published_date=published_date,
+                submission_deadline=None,
+                estimated_value=None,
+                country_code="EU",
+                classifications=classifications,
+                language="en",
+                raw_data=notice_data
+            )
+
+            return tender_notice
+
+        except Exception as e:
+            logger.error(f"❌ TED RSS 공고 파싱 오류: {e}")
+            return None
+
+    def _parse_rss_date(self, date_str: str) -> Optional[datetime]:
+        """RSS pubDate 형식 파싱"""
+        if not date_str:
+            return None
+
+        try:
+            # RFC 2822 형식 (예: "Wed, 02 Oct 2002 08:00:00 EST")
+            from email.utils import parsedate_to_datetime
+            return parsedate_to_datetime(date_str)
+        except Exception:
+            try:
+                # ISO 형식도 시도
+                return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            except Exception as e:
+                logger.warning(f"⚠️ RSS 날짜 파싱 실패: {date_str} - {e}")
+                return None
 
     def _parse_ted_date(self, date_str: Optional[str]) -> Optional[datetime]:
         """TED 날짜 형식 파싱"""
@@ -389,89 +785,6 @@ class TEDCrawler(BaseCrawler):
 
         return " ".join(description_parts) if description_parts else None
 
-    def _generate_dummy_notices(self, days: int) -> List[TenderNotice]:
-        """더미 TED 공고 데이터 생성"""
-        dummy_notices = []
-
-        # 더미 데이터 템플릿
-        dummy_templates = [
-            {
-                "title": "Medical Equipment Supply Contract",
-                "description": "Supply of diagnostic equipment for hospitals including PCR testing machines",
-                "country": "DE",
-                "org": "German Health Ministry",
-                "cpv": "33140000",  # Medical equipment
-                "value": 500000
-            },
-            {
-                "title": "Healthcare Digital Solutions",
-                "description": "Implementation of digital health management system",
-                "country": "FR",
-                "org": "French Regional Health Authority",
-                "cpv": "48000000",  # Software package
-                "value": 750000
-            },
-            {
-                "title": "Laboratory Testing Services",
-                "description": "Outsourced laboratory testing services for molecular diagnostics",
-                "country": "IT",
-                "org": "Italian National Health Service",
-                "cpv": "85145000",  # Laboratory services
-                "value": 300000
-            }
-        ]
-
-        for i, template in enumerate(dummy_templates):
-            try:
-                notice_id = f"TED-DUMMY-{datetime.now().strftime('%Y%m%d')}-{i+1:03d}"
-
-                buyer = Organization(
-                    name=template["org"],
-                    country_code=template["country"],
-                    identifier=f"ORG-{template['country']}-{i+1:03d}"
-                )
-
-                published_date = datetime.now() - timedelta(days=i+1)
-                deadline_date = datetime.now() + timedelta(days=30+i*5)
-
-                estimated_value = TenderValue(
-                    amount=float(template["value"]),
-                    currency=CurrencyCode.EUR,
-                    vat_included=False
-                )
-
-                classifications = [Classification(
-                    scheme="CPV",
-                    code=template["cpv"],
-                    description="Healthcare related classification"
-                )]
-
-                tender_notice = TenderNotice(
-                    source_system="TED",
-                    source_id=notice_id,
-                    source_url=f"https://ted.europa.eu/udl?uri=TED:NOTICE:{notice_id}:TEXT:EN:HTML",
-                    title=template["title"],
-                    description=template["description"],
-                    tender_type=TenderType.SERVICES,
-                    status=TenderStatus.ACTIVE,
-                    buyer=buyer,
-                    published_date=published_date,
-                    submission_deadline=deadline_date,
-                    estimated_value=estimated_value,
-                    country_code=template["country"],
-                    classifications=classifications,
-                    language="en",
-                    raw_data={"dummy": True, "template_id": i}
-                )
-
-                dummy_notices.append(tender_notice)
-
-            except Exception as e:
-                logger.error(f"❌ 더미 데이터 생성 오류: {e}")
-                continue
-
-        logger.info(f"✅ TED 더미 데이터 {len(dummy_notices)}건 생성")
-        return dummy_notices
 
     async def close(self):
         """리소스 정리"""

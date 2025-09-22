@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     SAMGOV_USERNAME: Optional[str] = None
     SAMGOV_PASSWORD: Optional[str] = None
     SAMGOV_API_KEY: Optional[str] = None
+    TED_API_KEY: Optional[str] = None  # TED eSenders API 키
     
     # 이메일 설정
     EMAIL_USERNAME: Optional[str] = None

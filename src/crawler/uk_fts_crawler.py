@@ -28,9 +28,12 @@ class UKFTSCrawler(BaseCrawler):
     def __init__(self):
         super().__init__("UK_FTS", "GB")
 
-        # UK FTS OCDS API 설정
-        self.api_base_url = "https://www.contractsfinder.service.gov.uk/api/rest/2"
-        self.notices_endpoint = "/live.json"
+        # UK FTS OCDS API 설정 (2025년 업데이트된 엔드포인트)
+        self.api_base_url = "https://www.find-tender.service.gov.uk/api/1.0"
+        self.notices_endpoint = "/ocdsReleasePackages"
+
+        # 백업 API (data.gov.uk)
+        self.backup_api_url = "https://data.gov.uk/data/contracts-finder-archive"
 
         # 세션 설정
         self.session = None
@@ -119,8 +122,9 @@ class UKFTSCrawler(BaseCrawler):
         all_notices = []
 
         try:
-            # 날짜 범위 설정
-            end_date = datetime.now()
+            # 날짜 범위 설정 (timezone-aware)
+            from datetime import timezone
+            end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=days)
 
             # 페이지별로 데이터 수집
@@ -129,8 +133,13 @@ class UKFTSCrawler(BaseCrawler):
             has_more = True
             api_failed = False
 
-            while has_more and offset < 1000:  # 최대 1000건
+            while has_more and offset < 500:  # 최대 500건 (API 제한 고려)
                 logger.info(f"📄 UK FTS 오프셋 {offset} 수집 중...")
+
+                # offset > 0인 경우 첫 요청만 하고 중단 (cursor 문제로 인해)
+                if offset > 0:
+                    logger.info(f"⚠️ UK FTS API cursor 제한으로 첫 페이지만 수집")
+                    break
 
                 notices_data = await self._fetch_notices_page(
                     start_date, end_date, offset, limit
@@ -147,9 +156,17 @@ class UKFTSCrawler(BaseCrawler):
                     try:
                         tender_notice = await self._parse_uk_fts_notice(notice_data)
                         if tender_notice:
-                            # 날짜 필터링
-                            if (tender_notice.published_date and
-                                tender_notice.published_date >= start_date):
+                            # 날짜 필터링 (timezone 호환성)
+                            if tender_notice.published_date:
+                                # timezone-naive datetime을 UTC로 변환
+                                pub_date = tender_notice.published_date
+                                if pub_date.tzinfo is None:
+                                    pub_date = pub_date.replace(tzinfo=timezone.utc)
+
+                                if pub_date >= start_date:
+                                    all_notices.append(tender_notice)
+                            else:
+                                # 날짜 정보가 없으면 포함
                                 all_notices.append(tender_notice)
                     except Exception as e:
                         logger.error(f"❌ UK FTS 공고 파싱 오류: {e}")
@@ -162,11 +179,10 @@ class UKFTSCrawler(BaseCrawler):
                 # API 요청 제한 준수
                 await asyncio.sleep(0.5)
 
-            # API 실패 시 더미 데이터 생성
+            # API 실패 시 처리
             if api_failed or len(all_notices) == 0:
-                logger.warning("⚠️ UK FTS API 접근 실패 또는 결과 없음 - 더미 데이터를 생성합니다")
-                dummy_notices = self._generate_dummy_notices(days)
-                all_notices.extend(dummy_notices)
+                logger.warning("⚠️ UK FTS API 접근 실패 또는 결과 없음")
+                return []
 
             # 헬스케어 관련 필터링
             healthcare_notices = []
@@ -203,15 +219,16 @@ class UKFTSCrawler(BaseCrawler):
         try:
             session = await self._get_session()
 
-            # 검색 매개변수 설정
+            # OCDS API 검색 매개변수 설정 (2025년 API 스펙)
             params = {
                 "limit": str(limit),
-                "offset": str(offset),
-                "orderBy": "publishedDate",
-                "order": "desc",
-                "publishedFrom": start_date.strftime("%Y-%m-%d"),
-                "publishedTo": end_date.strftime("%Y-%m-%d")
+                "updatedFrom": start_date.strftime("%Y-%m-%dT%H:%M:%S"),
+                "updatedTo": end_date.strftime("%Y-%m-%dT%H:%M:%S"),
+                "stages": "tender"  # tender 단계 공고만
             }
+
+            # cursor 기반 페이지네이션은 첫 요청에서만 사용
+            # offset > 0인 경우는 백업 API로 처리
 
             url = f"{self.api_base_url}{self.notices_endpoint}"
 
@@ -219,12 +236,14 @@ class UKFTSCrawler(BaseCrawler):
                 if response.status == 200:
                     data = await response.json()
 
-                    # UK FTS는 다양한 응답 형식을 가질 수 있음
+                    # OCDS 형식 처리
                     if isinstance(data, dict):
-                        if "notices" in data:
-                            return data["notices"]
-                        elif "releases" in data:
+                        if "releases" in data:
                             return data["releases"]
+                        elif "notices" in data:
+                            return data["notices"]
+                        elif "results" in data:
+                            return data["results"]
                         else:
                             return [data]  # 단일 객체
                     elif isinstance(data, list):
@@ -233,9 +252,8 @@ class UKFTSCrawler(BaseCrawler):
                         logger.warning(f"⚠️ UK FTS 예상치 못한 응답 형식: {type(data)}")
                         return []
                 elif response.status == 404:
-                    logger.warning(f"⚠️ UK FTS API 엔드포인트 404 오류 - API URL이 변경되었을 수 있습니다")
-                    logger.info("더미 데이터 모드로 전환합니다")
-                    return None
+                    logger.warning(f"⚠️ UK FTS API 엔드포인트 404 오류 - 백업 방법 시도")
+                    return await self._try_backup_api(params)
                 else:
                     error_text = await response.text()
                     logger.error(f"❌ UK FTS API 오류 (오프셋 {offset}): {response.status} - {error_text[:200]}")
@@ -244,6 +262,46 @@ class UKFTSCrawler(BaseCrawler):
         except Exception as e:
             logger.error(f"❌ UK FTS API 요청 실패 (오프셋 {offset}): {e}")
             return None
+
+    async def _try_backup_api(self, params: Dict) -> Optional[List[Dict]]:
+        """백업 API 시도 (Find a Tender 웹사이트 직접 접근)"""
+        try:
+            session = await self._get_session()
+
+            # 새로운 엔드포인트들 시도 (더 간단한 파라미터)
+            backup_endpoints = [
+                ("https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages", {"limit": "50"}),
+                ("https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages", {"limit": "50"}),
+                ("https://www.contractsfinder.service.gov.uk/api/rest/2/live.json", params)
+            ]
+
+            for backup_url, backup_params in backup_endpoints:
+                try:
+                    async with session.get(backup_url, params=backup_params) as response:
+                        if response.status == 200:
+                            logger.info(f"✅ 백업 API 성공: {backup_url}")
+                            data = await response.json()
+
+                            if isinstance(data, dict):
+                                if "releases" in data:
+                                    return data["releases"]
+                                elif "notices" in data:
+                                    return data["notices"]
+                                elif "results" in data:
+                                    return data["results"]
+                            elif isinstance(data, list):
+                                return data
+
+                except Exception as e:
+                    logger.debug(f"백업 URL 실패: {backup_url} - {e}")
+                    continue
+
+            logger.warning("⚠️ 모든 백업 API도 실패")
+            return []
+
+        except Exception as e:
+            logger.error(f"❌ 백업 API 시도 실패: {e}")
+            return []
 
     async def _parse_uk_fts_notice(self, notice_data: Dict) -> Optional[TenderNotice]:
         """UK FTS 공고 데이터를 TenderNotice로 변환"""
@@ -373,21 +431,32 @@ class UKFTSCrawler(BaseCrawler):
         return ", ".join(address_parts) if address_parts else None
 
     def _parse_uk_date(self, date_str: Optional[str]) -> Optional[datetime]:
-        """UK FTS 날짜 형식 파싱"""
+        """UK FTS 날짜 형식 파싱 (timezone-aware 반환)"""
         if not date_str:
             return None
 
         try:
+            from datetime import timezone
+
             # ISO 8601 형식
             if "T" in date_str:
                 # Z나 타임존 정보 처리
-                date_str = date_str.replace("Z", "+00:00")
-                return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                if date_str.endswith("Z"):
+                    date_str = date_str.replace("Z", "+00:00")
+                elif "+" not in date_str and date_str.count(":") >= 2:
+                    # 타임존 정보가 없으면 UTC로 가정
+                    date_str = date_str + "+00:00"
 
-            # 간단한 날짜 형식들
+                dt = datetime.fromisoformat(date_str)
+                # timezone-aware datetime 반환
+                return dt
+
+            # 간단한 날짜 형식들 (timezone-naive -> UTC 변환)
             for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y"]:
                 try:
-                    return datetime.strptime(date_str, fmt)
+                    dt = datetime.strptime(date_str, fmt)
+                    # timezone-naive를 UTC로 변환
+                    return dt.replace(tzinfo=timezone.utc)
                 except ValueError:
                     continue
 
@@ -436,9 +505,17 @@ class UKFTSCrawler(BaseCrawler):
             elif tender_status.lower() == "cancelled":
                 return TenderStatus.CANCELLED
 
-        # 마감일로 판단
-        if deadline and deadline < datetime.now():
-            return TenderStatus.CLOSED
+        # 마감일로 판단 (timezone-aware 비교)
+        if deadline:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+
+            # deadline이 timezone-naive인 경우 UTC로 변환
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+
+            if deadline < now:
+                return TenderStatus.CLOSED
 
         # awards 정보 확인
         awards = notice_data.get("awards", [])
@@ -582,87 +659,6 @@ class UKFTSCrawler(BaseCrawler):
 
         return documents
 
-    def _generate_dummy_notices(self, days: int) -> List[TenderNotice]:
-        """더미 UK FTS 공고 데이터 생성"""
-        dummy_notices = []
-
-        # 더미 데이터 템플릿
-        dummy_templates = [
-            {
-                "title": "NHS Medical Equipment Framework Agreement",
-                "description": "Framework agreement for supply of diagnostic equipment to NHS trusts including PCR testing machines and laboratory equipment",
-                "org": "NHS England Procurement",
-                "id": f"UK-FTS-{datetime.now().strftime('%Y%m%d')}-001",
-                "cpv": "33140000",  # Medical equipment
-                "value": 2500000
-            },
-            {
-                "title": "Digital Health Solutions Contract",
-                "description": "Contract for implementation of digital health management systems across UK health authorities",
-                "org": "Department of Health and Social Care",
-                "id": f"UK-FTS-{datetime.now().strftime('%Y%m%d')}-002",
-                "cpv": "48000000",  # Software package
-                "value": 1800000
-            },
-            {
-                "title": "Public Health Laboratory Services",
-                "description": "Outsourced laboratory testing services for public health screening and molecular diagnostics",
-                "org": "Public Health England",
-                "id": f"UK-FTS-{datetime.now().strftime('%Y%m%d')}-003",
-                "cpv": "85145000",  # Laboratory services
-                "value": 950000
-            }
-        ]
-
-        for i, template in enumerate(dummy_templates):
-            try:
-                buyer = Organization(
-                    name=template["org"],
-                    country_code="GB",
-                    identifier=f"GB-ORG-{i+1:03d}"
-                )
-
-                published_date = datetime.now() - timedelta(days=i+1)
-                deadline_date = datetime.now() + timedelta(days=45+i*10)
-
-                estimated_value = TenderValue(
-                    amount=float(template["value"]),
-                    currency=CurrencyCode.GBP,
-                    vat_included=False
-                )
-
-                classifications = [Classification(
-                    scheme="CPV",
-                    code=template["cpv"],
-                    description="Healthcare related classification"
-                )]
-
-                tender_notice = TenderNotice(
-                    source_system="UK_FTS",
-                    source_id=template["id"],
-                    source_url=f"https://www.contractsfinder.service.gov.uk/notice/{template['id']}",
-                    title=template["title"],
-                    description=template["description"],
-                    tender_type=TenderType.SERVICES,
-                    status=TenderStatus.ACTIVE,
-                    buyer=buyer,
-                    published_date=published_date,
-                    submission_deadline=deadline_date,
-                    estimated_value=estimated_value,
-                    country_code="GB",
-                    classifications=classifications,
-                    language="en",
-                    raw_data={"dummy": True, "template_id": i}
-                )
-
-                dummy_notices.append(tender_notice)
-
-            except Exception as e:
-                logger.error(f"❌ UK FTS 더미 데이터 생성 오류: {e}")
-                continue
-
-        logger.info(f"✅ UK FTS 더미 데이터 {len(dummy_notices)}건 생성")
-        return dummy_notices
 
     async def close(self):
         """리소스 정리"""

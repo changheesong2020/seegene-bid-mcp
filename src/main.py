@@ -6,7 +6,7 @@ FastMCP를 사용한 메인 서버 애플리케이션
 import asyncio
 from datetime import datetime
 from typing import List, Dict, Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -77,14 +77,52 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS 설정
+# CORS 설정 - MCP 및 Copilot Studio 호환
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "*",  # 개발용
+        "https://copilotstudio.microsoft.com",
+        "https://make.powerplatform.com",
+        "https://apps.powerapps.com",
+        "https://flow.microsoft.com",
+        "http://localhost:*",
+        "https://localhost:*"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=[
+        "*",
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers"
+    ],
+    expose_headers=["*"]
 )
+
+# 추가 CORS 미들웨어 (MCP 전용)
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    """MCP 요청을 위한 추가 CORS 헤더"""
+    response = await call_next(request)
+
+    # MCP 관련 경로에 대한 특별 처리
+    if request.url.path.startswith("/mcp") or request.url.path in ["/api/mcp", "/v1/mcp", "/jsonrpc"]:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, Origin, X-Requested-With"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+
+        # OPTIONS 요청에 대한 특별 처리
+        if request.method == "OPTIONS":
+            response.headers["Access-Control-Max-Age"] = "86400"
+
+    return response
 
 # FastMCP 인스턴스 생성
 if FastMCP:
@@ -359,7 +397,155 @@ if FastMCP:
                 "error": str(e)
             }
 
+    @mcp.tool()
+    async def reset_database() -> Dict[str, Any]:
+        """데이터베이스 전체 초기화 (모든 데이터 삭제)"""
+        try:
+            from src.database.connection import get_db_session, BidInfoModel
+            from sqlalchemy import delete
+
+            async with get_db_session() as session:
+                # 모든 입찰 정보 삭제
+                result = await session.execute(delete(BidInfoModel))
+                deleted_count = result.rowcount
+                await session.commit()
+
+                logger.info(f"MCP 데이터베이스 초기화 완료: {deleted_count}건 삭제")
+
+                return {
+                    "success": True,
+                    "message": "데이터베이스가 성공적으로 초기화되었습니다",
+                    "deleted_records": deleted_count,
+                    "timestamp": datetime.now().isoformat()
+                }
+
+        except Exception as e:
+            logger.error(f"MCP 데이터베이스 초기화 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def clean_dummy_data() -> Dict[str, Any]:
+        """더미 데이터만 삭제"""
+        try:
+            from src.database.connection import get_db_session, BidInfoModel
+            from sqlalchemy import delete, select
+
+            async with get_db_session() as session:
+                # 더미 데이터 확인
+                dummy_result = await session.execute(
+                    select(BidInfoModel).where(
+                        BidInfoModel.extra_data.contains('"dummy": true') |
+                        BidInfoModel.bid_number.like('%DUMMY%') |
+                        BidInfoModel.bid_number.like('%TEST%')
+                    )
+                )
+                dummy_bids = dummy_result.scalars().all()
+                dummy_count = len(dummy_bids)
+
+                if dummy_count > 0:
+                    # 더미 데이터 삭제
+                    await session.execute(
+                        delete(BidInfoModel).where(
+                            BidInfoModel.extra_data.contains('"dummy": true') |
+                            BidInfoModel.bid_number.like('%DUMMY%') |
+                            BidInfoModel.bid_number.like('%TEST%')
+                        )
+                    )
+                    await session.commit()
+
+                logger.info(f"MCP 더미 데이터 정리 완료: {dummy_count}건 삭제")
+
+                return {
+                    "success": True,
+                    "message": "더미 데이터가 성공적으로 삭제되었습니다",
+                    "deleted_dummy_records": dummy_count,
+                    "timestamp": datetime.now().isoformat()
+                }
+
+        except Exception as e:
+            logger.error(f"MCP 더미 데이터 정리 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @mcp.tool()
+    async def get_database_info() -> Dict[str, Any]:
+        """데이터베이스 정보 및 통계 조회"""
+        try:
+            from src.database.connection import get_db_session, BidInfoModel
+            from sqlalchemy import select, func
+
+            async with get_db_session() as session:
+                # 전체 레코드 수
+                total_result = await session.execute(select(func.count(BidInfoModel.id)))
+                total_count = total_result.scalar()
+
+                # 소스별 통계
+                source_result = await session.execute(
+                    select(BidInfoModel.source_site, func.count(BidInfoModel.id))
+                    .group_by(BidInfoModel.source_site)
+                )
+                source_stats = {site: count for site, count in source_result.fetchall()}
+
+                # 더미 데이터 수
+                dummy_result = await session.execute(
+                    select(func.count(BidInfoModel.id)).where(
+                        BidInfoModel.extra_data.contains('"dummy": true') |
+                        BidInfoModel.bid_number.like('%DUMMY%') |
+                        BidInfoModel.bid_number.like('%TEST%')
+                    )
+                )
+                dummy_count = dummy_result.scalar()
+
+                # 최근 데이터
+                recent_result = await session.execute(
+                    select(BidInfoModel.created_at, BidInfoModel.source_site, BidInfoModel.title)
+                    .order_by(BidInfoModel.created_at.desc())
+                    .limit(5)
+                )
+                recent_data = [
+                    {
+                        "created_at": row[0].isoformat() if row[0] else None,
+                        "source": row[1],
+                        "title": row[2][:50] + "..." if len(row[2]) > 50 else row[2]
+                    }
+                    for row in recent_result.fetchall()
+                ]
+
+                return {
+                    "success": True,
+                    "database_info": {
+                        "total_records": total_count,
+                        "dummy_records": dummy_count,
+                        "real_records": total_count - dummy_count,
+                        "source_breakdown": source_stats,
+                        "recent_entries": recent_data
+                    },
+                    "timestamp": datetime.now().isoformat()
+                }
+
+        except Exception as e:
+            logger.error(f"MCP 데이터베이스 정보 조회 실패: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     # MCP 서버는 앱 설정 후 마운트됨 (아래에서)
+
+# OPTIONS 요청 처리 (CORS preflight)
+@app.options("/mcp")
+@app.options("/mcp/")
+@app.options("/api/mcp")
+@app.options("/v1/mcp")
+@app.options("/jsonrpc")
+async def mcp_options():
+    """CORS preflight 요청 처리"""
+    return {"status": "ok"}
 
 # 일반적인 MCP 경로들에 대한 정보 제공
 @app.get("/api/mcp")
@@ -941,6 +1127,143 @@ async def test_database():
         return {
             "success": False,
             "message": f"데이터베이스 연결 실패: {e}",
+            "error": str(e)
+        }
+
+@app.post("/admin/reset-database")
+async def reset_database():
+    """데이터베이스 초기화 (모든 데이터 삭제)"""
+    try:
+        from src.database.connection import get_db_session, BidInfoModel
+        from sqlalchemy import delete
+
+        async with get_db_session() as session:
+            # 모든 입찰 정보 삭제
+            result = await session.execute(delete(BidInfoModel))
+            deleted_count = result.rowcount
+            await session.commit()
+
+            logger.info(f"데이터베이스 초기화 완료: {deleted_count}건 삭제")
+
+            return {
+                "success": True,
+                "message": "데이터베이스가 성공적으로 초기화되었습니다",
+                "deleted_records": deleted_count,
+                "timestamp": datetime.now().isoformat()
+            }
+
+    except Exception as e:
+        logger.error(f"데이터베이스 초기화 실패: {e}")
+        return {
+            "success": False,
+            "message": f"데이터베이스 초기화 실패: {e}",
+            "error": str(e)
+        }
+
+@app.post("/admin/clean-dummy-data")
+async def clean_dummy_data():
+    """더미 데이터만 삭제"""
+    try:
+        from src.database.connection import get_db_session, BidInfoModel
+        from sqlalchemy import delete, select
+
+        async with get_db_session() as session:
+            # 더미 데이터 확인
+            dummy_result = await session.execute(
+                select(BidInfoModel).where(
+                    BidInfoModel.extra_data.contains('"dummy": true') |
+                    BidInfoModel.bid_number.like('%DUMMY%') |
+                    BidInfoModel.bid_number.like('%TEST%')
+                )
+            )
+            dummy_bids = dummy_result.scalars().all()
+            dummy_count = len(dummy_bids)
+
+            if dummy_count > 0:
+                # 더미 데이터 삭제
+                await session.execute(
+                    delete(BidInfoModel).where(
+                        BidInfoModel.extra_data.contains('"dummy": true') |
+                        BidInfoModel.bid_number.like('%DUMMY%') |
+                        BidInfoModel.bid_number.like('%TEST%')
+                    )
+                )
+                await session.commit()
+
+            logger.info(f"더미 데이터 정리 완료: {dummy_count}건 삭제")
+
+            return {
+                "success": True,
+                "message": "더미 데이터가 성공적으로 삭제되었습니다",
+                "deleted_dummy_records": dummy_count,
+                "timestamp": datetime.now().isoformat()
+            }
+
+    except Exception as e:
+        logger.error(f"더미 데이터 정리 실패: {e}")
+        return {
+            "success": False,
+            "message": f"더미 데이터 정리 실패: {e}",
+            "error": str(e)
+        }
+
+@app.get("/admin/database-info")
+async def get_database_info():
+    """데이터베이스 정보 조회"""
+    try:
+        from src.database.connection import get_db_session, BidInfoModel
+        from sqlalchemy import select, func
+
+        async with get_db_session() as session:
+            # 전체 레코드 수
+            total_result = await session.execute(select(func.count(BidInfoModel.id)))
+            total_count = total_result.scalar()
+
+            # 소스별 통계
+            source_result = await session.execute(
+                select(BidInfoModel.source_site, func.count(BidInfoModel.id))
+                .group_by(BidInfoModel.source_site)
+            )
+            source_stats = {site: count for site, count in source_result.fetchall()}
+
+            # 더미 데이터 수
+            dummy_result = await session.execute(
+                select(func.count(BidInfoModel.id)).where(
+                    BidInfoModel.extra_data.contains('"dummy": true') |
+                    BidInfoModel.bid_number.like('%DUMMY%') |
+                    BidInfoModel.bid_number.like('%TEST%')
+                )
+            )
+            dummy_count = dummy_result.scalar()
+
+            # 최근 데이터
+            recent_result = await session.execute(
+                select(BidInfoModel.created_at, BidInfoModel.source_site)
+                .order_by(BidInfoModel.created_at.desc())
+                .limit(5)
+            )
+            recent_data = [
+                {"created_at": row[0].isoformat() if row[0] else None, "source": row[1]}
+                for row in recent_result.fetchall()
+            ]
+
+            return {
+                "success": True,
+                "database_info": {
+                    "total_records": total_count,
+                    "dummy_records": dummy_count,
+                    "real_records": total_count - dummy_count,
+                    "source_breakdown": source_stats,
+                    "recent_entries": recent_data
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+
+    except Exception as e:
+        logger.error(f"데이터베이스 정보 조회 실패: {e}")
+        return {
+            "success": False,
+            "message": f"데이터베이스 정보 조회 실패: {e}",
             "error": str(e)
         }
 
