@@ -1,5 +1,5 @@
 {
-  "openapi": "3.1.0",
+  "openapi": "3.0.1",
   "info": {
     "title": "Seegene Bid Information MCP Server",
     "description": "씨젠을 위한 글로벌 입찰 정보 수집 및 분석 시스템",
@@ -1027,30 +1027,16 @@
             "description": "검색 쿼리"
           },
           "expansion": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/KeywordExpansion"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "키워드 확장 설정"
+            "description": "키워드 확장 설정",
+            "$ref": "#/components/schemas/KeywordExpansion"
           },
           "custom_filters": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/SearchFilter"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Custom Filters",
-            "description": "커스텀 필터"
+            "description": "커스텀 필터",
+            "items": {
+              "$ref": "#/components/schemas/SearchFilter"
+            },
+            "type": "array"
           },
           "include_metadata": {
             "type": "boolean",
@@ -1084,207 +1070,102 @@
             "default": []
           },
           "exclude_keywords": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Exclude Keywords",
-            "description": "제외할 키워드"
+            "description": "제외할 키워드",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "exact_phrases": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Exact Phrases",
-            "description": "정확한 구문 검색"
+            "description": "정확한 구문 검색",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "countries": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Countries",
-            "description": "국가 필터 (KR, US, CN 등)"
+            "description": "국가 필터 (KR, US, CN 등)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "sites": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Sites",
-            "description": "사이트 필터 (G2B, SAM.gov 등)"
+            "description": "사이트 필터 (G2B, SAM.gov 등)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "organizations": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Organizations",
-            "description": "발주기관 필터"
+            "description": "발주기관 필터",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "announcement_date_range": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DateRange"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "공고일 범위"
+            "description": "공고일 범위",
+            "$ref": "#/components/schemas/DateRange"
           },
           "deadline_date_range": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DateRange"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "마감일 범위"
+            "description": "마감일 범위",
+            "$ref": "#/components/schemas/DateRange"
           },
           "price_range": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PriceRange"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "가격 범위"
+            "description": "가격 범위",
+            "$ref": "#/components/schemas/PriceRange"
           },
           "min_relevance_score": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 10.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Min Relevance Score",
-            "description": "최소 관련성 점수 (0-10)"
+            "description": "최소 관련성 점수 (0-10)",
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0
           },
           "relevance_level": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RelevanceLevel"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "관련성 레벨"
+            "description": "관련성 레벨",
+            "$ref": "#/components/schemas/RelevanceLevel"
           },
           "urgency_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/UrgencyLevel"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Urgency Levels",
-            "description": "긴급도 레벨 필터"
+            "description": "긴급도 레벨 필터",
+            "items": {
+              "$ref": "#/components/schemas/UrgencyLevel"
+            },
+            "type": "array"
           },
           "sort_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Sort By",
             "description": "정렬 기준 (relevance, date, price, urgency)",
-            "default": "relevance"
+            "default": "relevance",
+            "type": "string"
           },
           "sort_order": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Sort Order",
             "description": "정렬 순서 (asc, desc)",
-            "default": "desc"
+            "default": "desc",
+            "type": "string"
           },
           "limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 1000.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Limit",
             "description": "결과 개수 제한",
-            "default": 50
+            "default": 50,
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0
           },
           "offset": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Offset",
             "description": "결과 오프셋",
-            "default": 0
+            "default": 0,
+            "type": "integer",
+            "minimum": 0.0
           }
         },
         "type": "object",
@@ -1330,17 +1211,10 @@
             "description": "적용된 필터 목록"
           },
           "aggregations": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Aggregations",
-            "description": "집계 정보 (국가별, 사이트별, 긴급도별 등)"
+            "description": "집계 정보 (국가별, 사이트별, 긴급도별 등)",
+            "additionalProperties": true,
+            "type": "object"
           },
           "offset": {
             "type": "integer",
@@ -1465,76 +1339,34 @@
             "description": "발주 기관"
           },
           "bid_number": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Bid Number",
-            "description": "입찰 번호"
+            "description": "입찰 번호",
+            "type": "string"
           },
           "announcement_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Announcement Date",
-            "description": "공고일"
+            "description": "공고일",
+            "type": "string"
           },
           "deadline_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Deadline Date",
-            "description": "마감일"
+            "description": "마감일",
+            "type": "string"
           },
           "estimated_price": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Estimated Price",
-            "description": "추정 가격"
+            "description": "추정 가격",
+            "type": "string"
           },
           "currency": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Currency",
-            "description": "통화"
+            "description": "통화",
+            "type": "string"
           },
           "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Source Url",
-            "description": "원본 URL"
+            "description": "원본 URL",
+            "type": "string"
           },
           "source_site": {
             "type": "string",
@@ -1562,56 +1394,28 @@
             "description": "상태"
           },
           "keywords": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Keywords",
-            "description": "매칭된 키워드"
+            "description": "매칭된 키워드",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "created_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Created At",
-            "description": "생성일시"
+            "description": "생성일시",
+            "type": "string"
           },
           "extra_data": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Extra Data",
-            "description": "추가 데이터"
+            "description": "추가 데이터",
+            "additionalProperties": true,
+            "type": "object"
           },
           "updated_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Updated At",
-            "description": "수정일시"
+            "description": "수정일시",
+            "type": "string"
           }
         },
         "type": "object",
@@ -1666,76 +1470,34 @@
             "description": "발주 기관"
           },
           "bid_number": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Bid Number",
-            "description": "입찰 번호"
+            "description": "입찰 번호",
+            "type": "string"
           },
           "announcement_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Announcement Date",
-            "description": "공고일"
+            "description": "공고일",
+            "type": "string"
           },
           "deadline_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Deadline Date",
-            "description": "마감일"
+            "description": "마감일",
+            "type": "string"
           },
           "estimated_price": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Estimated Price",
-            "description": "추정 가격"
+            "description": "추정 가격",
+            "type": "string"
           },
           "currency": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Currency",
-            "description": "통화"
+            "description": "통화",
+            "type": "string"
           },
           "source_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Source Url",
-            "description": "원본 URL"
+            "description": "원본 URL",
+            "type": "string"
           },
           "source_site": {
             "type": "string",
@@ -1763,31 +1525,17 @@
             "description": "상태"
           },
           "keywords": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Keywords",
-            "description": "매칭된 키워드"
+            "description": "매칭된 키워드",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "created_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Created At",
-            "description": "생성일시"
+            "description": "생성일시",
+            "type": "string"
           }
         },
         "type": "object",
@@ -1823,17 +1571,10 @@
             "$ref": "#/components/schemas/PaginationInfo"
           },
           "filters": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Filters",
-            "description": "적용된 필터"
+            "description": "적용된 필터",
+            "additionalProperties": true,
+            "type": "object"
           }
         },
         "type": "object",
@@ -1974,19 +1715,12 @@
       "CrawlerRequest": {
         "properties": {
           "keywords": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Keywords",
-            "description": "검색할 키워드 목록. 기본값은 설정된 씨젠 키워드 사용"
+            "description": "검색할 키워드 목록. 기본값은 설정된 씨젠 키워드 사용",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object",
@@ -2011,42 +1745,21 @@
             "description": "발견된 입찰 정보 수"
           },
           "execution_time": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Execution Time",
             "description": "실행 시간(초)",
-            "default": 0.0
+            "default": 0.0,
+            "type": "number"
           },
           "login_success": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Login Success",
             "description": "로그인 성공 여부",
-            "default": false
+            "default": false,
+            "type": "boolean"
           },
           "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Error",
-            "description": "오류 메시지"
+            "description": "오류 메시지",
+            "type": "string"
           }
         },
         "type": "object",
@@ -2092,30 +1805,16 @@
       "DateRange": {
         "properties": {
           "start_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Start Date",
-            "description": "시작일"
+            "description": "시작일",
+            "type": "string",
+            "format": "date"
           },
           "end_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "End Date",
-            "description": "종료일"
+            "description": "종료일",
+            "type": "string",
+            "format": "date"
           }
         },
         "type": "object",
@@ -2313,40 +2012,19 @@
       "PriceRange": {
         "properties": {
           "min_price": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Min Price",
-            "description": "최소 가격"
+            "description": "최소 가격",
+            "type": "number"
           },
           "max_price": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Max Price",
-            "description": "최대 가격"
+            "description": "최대 가격",
+            "type": "number"
           },
           "currency": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Currency",
-            "description": "통화 (KRW, USD, EUR 등)"
+            "description": "통화 (KRW, USD, EUR 등)",
+            "type": "string"
           }
         },
         "type": "object",
@@ -2379,16 +2057,9 @@
             "example": "0 9 * * *"
           },
           "job_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Job Id",
-            "description": "작업 ID (미지정시 자동 생성)"
+            "description": "작업 ID (미지정시 자동 생성)",
+            "type": "string"
           }
         },
         "type": "object",
@@ -2412,40 +2083,19 @@
             "description": "응답 메시지"
           },
           "site_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Site Name",
-            "description": "사이트명"
+            "description": "사이트명",
+            "type": "string"
           },
           "cron_expression": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Cron Expression",
-            "description": "크론 표현식"
+            "description": "크론 표현식",
+            "type": "string"
           },
           "job_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Job Id",
-            "description": "작업 ID"
+            "description": "작업 ID",
+            "type": "string"
           }
         },
         "type": "object",
@@ -2469,16 +2119,9 @@
             "description": "작업 이름"
           },
           "next_run": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Next Run",
-            "description": "다음 실행 시간 ISO 포맷"
+            "description": "다음 실행 시간 ISO 포맷",
+            "type": "string"
           },
           "trigger": {
             "type": "string",
@@ -2538,26 +2181,9 @@
             "description": "연산자 (eq, ne, gt, lt, gte, lte, in, not_in, contains, starts_with, ends_with)"
           },
           "value": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "items": {},
-                "type": "array"
-              }
-            ],
             "title": "Value",
-            "description": "필터 값"
+            "description": "필터 값",
+            "type": "string"
           }
         },
         "type": "object",
@@ -2612,52 +2238,24 @@
             "description": "국가"
           },
           "announcement_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Announcement Date",
-            "description": "공고일"
+            "description": "공고일",
+            "type": "string"
           },
           "deadline_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Deadline Date",
-            "description": "마감일"
+            "description": "마감일",
+            "type": "string"
           },
           "estimated_price": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Estimated Price",
-            "description": "추정 가격"
+            "description": "추정 가격",
+            "type": "string"
           },
           "currency": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Currency",
-            "description": "통화"
+            "description": "통화",
+            "type": "string"
           },
           "relevance_score": {
             "type": "number",
@@ -2679,29 +2277,15 @@
             "default": []
           },
           "metadata": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Metadata",
-            "description": "메타데이터"
+            "description": "메타데이터",
+            "additionalProperties": true,
+            "type": "object"
           },
           "relevance_explanation": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Relevance Explanation",
-            "description": "관련성 점수 설명"
+            "description": "관련성 점수 설명",
+            "type": "string"
           }
         },
         "type": "object",
@@ -2744,16 +2328,9 @@
             "description": "Relevant base URLs for the platform"
           },
           "robots_txt_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
             "title": "Robots Txt Url",
-            "description": "Direct URL to the robots.txt file if known"
+            "description": "Direct URL to the robots.txt file if known",
+            "type": "string"
           },
           "robots_notes": {
             "type": "string",
@@ -2883,14 +2460,7 @@
         "properties": {
           "loc": {
             "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
+              "type": "string"
             },
             "type": "array",
             "title": "Location"
@@ -2913,5 +2483,10 @@
         "title": "ValidationError"
       }
     }
-  }
+  },
+  "servers": [
+    {
+      "url": "http://20.243.193.245:8000"
+    }
+  ]
 }
