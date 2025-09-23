@@ -99,7 +99,8 @@ class SAMGovCrawler(BaseCrawler):
                     "keyword": keyword,
                     "postedFrom": (datetime.now() - timedelta(days=30)).strftime("%m/%d/%Y"),
                     "postedTo": datetime.now().strftime("%m/%d/%Y"),
-                    "limit": 100
+                    "limit": 100,
+                    "api_key": settings.SAMGOV_API_KEY,
                 }
 
                 # API 호출
