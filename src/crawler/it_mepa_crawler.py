@@ -40,13 +40,19 @@ class ItalyMEPACrawler(BaseCrawler):
 
         # MEPA 플랫폼 URL들
         self.mepa_base_url = "https://www.acquistinretepa.it"
-        self.gare_base_url = "https://www.gare.consip.it"
+        # CONSIP는 기존 www.gare.consip.it 도메인에서 bandi.acquistinretepa.it로 통합되었음
+        # (2024년 하반기 개편)
+        self.gare_base_url = "https://bandi.acquistinretepa.it"
 
         # API 엔드포인트들 (추정)
         self.search_api_url = f"{self.mepa_base_url}/opencms/opencms/HandlersPool"
         self.rss_feeds = [
-            f"{self.mepa_base_url}/rss/gare.xml",
-            f"{self.gare_base_url}/rss/bandi.xml"
+            # 메인 포털 RSS (2024 개편 후 위치 변경)
+            f"{self.mepa_base_url}/opencms/opencms/export/sites/publico/PortaleAcquisti/documenti/rss/rss_gare.xml",
+            # CONSIP bandi RSS (신규 도메인)
+            f"{self.gare_base_url}/opencms/export/sites/publico/bandi/rss/gare.xml",
+            # 추가적으로 avvisi 채널도 함께 수집
+            f"{self.gare_base_url}/opencms/export/sites/publico/bandi/rss/avvisi.xml",
         ]
 
         # 이탈리아어 의료 키워드

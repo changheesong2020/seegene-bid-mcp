@@ -45,7 +45,7 @@
 
 - 🇮🇹 **MEPA**: 이탈리아 공공조달
   - 공식 사이트: https://www.acquistinretepa.it
-  - GARE: https://www.gare.consip.it
+  - GARE: https://bandi.acquistinretepa.it
 
 ## 🚀 주요 기능
 
