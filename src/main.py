@@ -136,6 +136,22 @@ async def add_cors_headers(request: Request, call_next):
 # FastMCP 인스턴스 생성
 if FastMCP:
     mcp = FastMCP("Seegene Bid Information Server")
+
+    # Smithery 등 외부 도구가 MCP 엔드포인트에 접근할 수 있도록 허용할 오리진 정의
+    MCP_ALLOWED_ORIGINS = [
+        "https://smithery.ai",
+        "https://www.smithery.ai",
+        "https://copilotstudio.microsoft.com",
+        "https://make.powerplatform.com",
+        "https://apps.powerapps.com",
+        "https://flow.microsoft.com",
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://localhost",
+        "https://localhost:3000",
+    ]
     
     @mcp.tool()
     async def search_bids(
@@ -1332,8 +1348,19 @@ if FastMCP:
             "note": "⚠️ SSE transport deprecated after Aug 2025"
         }
 
+    # MCP SSE 앱에 CORS 미들웨어 적용 (Starlette 서브앱이므로 별도 설정 필요)
+    mcp_sse_app = mcp.sse_app()
+    mcp_sse_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=MCP_ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
+
     # MCP 서버 마운트 (라우트 정의 후)
-    app.mount("/mcp", mcp.sse_app())
+    app.mount("/mcp", mcp_sse_app)
 
 if __name__ == "__main__":
     import uvicorn
