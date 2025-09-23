@@ -23,6 +23,7 @@ from ..models.tender_notice import (
 )
 from ..utils.cpv_filter import cpv_filter
 from ..utils.logger import get_logger
+from ..database.connection import DatabaseManager
 
 logger = get_logger(__name__)
 
@@ -275,22 +276,29 @@ class FranceBOAMPCrawler(BaseCrawler):
 
                     tender_info = {
                         "title": title[:200].strip(),
-                        "description": description[:500] if description else f"키워드: {keyword}",
                         "organization": organization.strip(),
-                        "source_url": source_url,
-                        "publication_date": "",  # API 응답에서 직접 날짜 정보를 찾지 못함
-                        "deadline_date": "",
-                        "estimated_value": estimated_value,
+                        "bid_number": f"FR-API-{datetime.now().strftime('%Y%m%d')}-{record_id if record_id and record_id.isdigit() else len(results)+1:03d}",
+                        "announcement_date": datetime.now().date().isoformat(),  # API 응답에서 직접 날짜 정보를 찾지 못함
+                        "deadline_date": self._estimate_deadline_date(),
+                        "estimated_price": str(estimated_value) if estimated_value else "",
                         "currency": "EUR",
-                        "source_site": "BOAMP",
+                        "source_url": source_url,
+                        "source_site": "FR_BOAMP",
                         "country": "FR",
-                        "cpv_codes": cpv_codes,
                         "keywords": [keyword],
-                        "tender_type": self._determine_tender_type(title),
-                        "notice_type": "API",
-                        "language": "fr",
-                        "record_id": record_id,
-                        "nature": nature_libelle
+                        "relevance_score": self._calculate_relevance_score(title, keyword),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": description[:500] if description else f"키워드: {keyword}",
+                            "cpv_codes": cpv_codes,
+                            "tender_type": self._determine_tender_type(title),
+                            "notice_type": "API",
+                            "language": "fr",
+                            "record_id": record_id,
+                            "nature": nature_libelle,
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 필터링
@@ -525,18 +533,27 @@ class FranceBOAMPCrawler(BaseCrawler):
 
                     if title:  # 제목이 있는 경우만 처리
                         tender_info = {
-                            "title": title[:200],  # 제목 길이 제한
-                            "description": description[:500] if description else f"검색 키워드: {keyword}",
+                            "title": title[:200],
                             "organization": organization if organization else "프랑스 공공기관",
-                            "source_url": link_url,
-                            "publication_date": datetime.now().date().isoformat(),
-                            "source_site": "BOAMP",
-                            "country": "FR",
+                            "bid_number": f"FR-WEB-{datetime.now().strftime('%Y%m%d')}-{len(results)+1:03d}",
+                            "announcement_date": datetime.now().date().isoformat(),
+                            "deadline_date": self._estimate_deadline_date(),
+                            "estimated_price": "",
                             "currency": "EUR",
-                            "tender_type": self._determine_tender_type(title),
+                            "source_url": link_url,
+                            "source_site": "FR_BOAMP",
+                            "country": "FR",
                             "keywords": [keyword],
-                            "notice_type": "WEB_SEARCH",
-                            "language": "fr"
+                            "relevance_score": self._calculate_relevance_score(title, keyword),
+                            "urgency_level": "medium",
+                            "status": "active",
+                            "extra_data": {
+                                "description": description[:500] if description else f"검색 키워드: {keyword}",
+                                "tender_type": self._determine_tender_type(title),
+                                "notice_type": "WEB_SEARCH",
+                                "language": "fr",
+                                "crawled_at": datetime.now().isoformat()
+                            }
                         }
 
                         # 의료기기 관련 필터링

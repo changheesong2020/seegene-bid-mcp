@@ -9,8 +9,8 @@ import json
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.crawler.fr_boamp_crawler import FrBoampCrawler
-from src.database.connection import DatabaseManager
+from src.crawler.fr_boamp_crawler import FranceBOAMPCrawler
+from src.database.connection import DatabaseManager, init_database
 
 async def debug_fr_save():
     """FR 크롤러 저장 로직 디버깅"""
@@ -19,8 +19,13 @@ async def debug_fr_save():
     print("="*60)
 
     try:
+        # 데이터베이스 초기화
+        print("\n0. Database Initialization")
+        await init_database()
+        print("   Database initialized successfully")
+
         # FR 크롤러 인스턴스 생성
-        crawler = FrBoampCrawler()
+        crawler = FranceBOAMPCrawler()
 
         # 작은 범위로 테스트 (단일 키워드)
         print("\n1. Testing FR Crawler with Single Keyword")
@@ -61,9 +66,9 @@ async def debug_fr_save():
                         missing_fields.append(field)
 
                 if missing_fields:
-                    print(f"   ⚠️ Missing required fields: {missing_fields}")
+                    print(f"   WARNING: Missing required fields: {missing_fields}")
                 else:
-                    print(f"   ✅ All required fields present")
+                    print(f"   SUCCESS: All required fields present")
 
                 # 전체 데이터를 JSON으로 출력 (처음 2개만)
                 print(f"\n4. Sample Data Structure")
@@ -71,12 +76,12 @@ async def debug_fr_save():
                     print(f"   Sample {i}:")
                     print(f"   {json.dumps(item, indent=4, ensure_ascii=False)[:500]}...")
             else:
-                print(f"   ❌ No results collected")
+                print(f"   ERROR: No results collected")
 
         except asyncio.TimeoutError:
-            print(f"   ⏰ Crawling timeout (2 minutes)")
+            print(f"   TIMEOUT: Crawling timeout (2 minutes)")
         except Exception as e:
-            print(f"   ❌ Crawling failed: {e}")
+            print(f"   ERROR: Crawling failed: {e}")
             import traceback
             traceback.print_exc()
 
@@ -104,10 +109,10 @@ async def debug_fr_save():
 
             print(f"   Testing database save with sample data...")
             await DatabaseManager.save_bid_info(test_data)
-            print(f"   ✅ Database save test successful")
+            print(f"   SUCCESS: Database save test successful")
 
         except Exception as e:
-            print(f"   ❌ Database save test failed: {e}")
+            print(f"   ERROR: Database save test failed: {e}")
             import traceback
             traceback.print_exc()
 
