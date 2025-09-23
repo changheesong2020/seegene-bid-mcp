@@ -664,14 +664,27 @@ async def crawler_status_endpoint():
         }
 
 @app.post("/crawl/{site_name}", response_model=CrawlerExecutionResponse)
-async def run_single_crawler(site_name: str, request: CrawlerRequest = None):
+async def run_single_crawler(site_name: str, request: CrawlerRequest = CrawlerRequest()):
     """특정 사이트에서 크롤링 실행"""
     try:
         logger.info(f"수동 크롤링 실행 요청: {site_name}")
         logger.info(f"🔍 요청 객체: {request}")
+        logger.info(f"🔍 요청 객체 타입: {type(request)}")
 
-        keywords = request.keywords if request else None
-        logger.info(f"🔍 추출된 키워드: {keywords}")
+        # 안전한 키워드 추출
+        keywords = None
+        if request and hasattr(request, 'keywords'):
+            keywords = request.keywords
+            # 잘못된 키워드 필터링
+            if keywords and isinstance(keywords, list):
+                if 'string' in keywords:
+                    logger.warning(f"⚠️ 잘못된 'string' 키워드 감지됨. 무시하고 기본 키워드 사용")
+                    keywords = None
+                elif any(not isinstance(k, str) or len(k) == 0 for k in keywords):
+                    logger.warning(f"⚠️ 잘못된 키워드 형식 감지됨: {keywords}. 기본 키워드 사용")
+                    keywords = None
+
+        logger.info(f"🔍 최종 사용될 키워드: {keywords}")
         result = await crawler_manager.run_crawler(site_name, keywords)
 
         return CrawlerExecutionResponse(

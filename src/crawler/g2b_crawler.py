@@ -121,6 +121,17 @@ class G2BCrawler(BaseCrawler):
             unique_results = self._remove_duplicates(all_results)
 
             logger.info(f"✅ G2B 키워드별 검색 완료: 전체 {len(all_results)}건 수집 → 중복 제거 후 {len(unique_results)}건")
+
+            # 데이터베이스에 저장
+            if unique_results:
+                try:
+                    await DatabaseManager.save_bid_info(unique_results)
+                    logger.info(f"💾 G2B 데이터베이스 저장 완료: {len(unique_results)}건")
+                except Exception as e:
+                    logger.error(f"❌ G2B 데이터베이스 저장 실패: {e}")
+            else:
+                logger.info("📝 G2B 저장할 데이터가 없습니다")
+
             return unique_results
 
         except Exception as e:

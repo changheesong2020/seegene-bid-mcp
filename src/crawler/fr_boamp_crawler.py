@@ -128,6 +128,16 @@ class FranceBOAMPCrawler(BaseCrawler):
 
             logger.info(f"프랑스 BOAMP 크롤링 완료 - 총 {len(unique_results)}건 수집")
 
+            # 데이터베이스에 저장
+            if unique_results:
+                try:
+                    await DatabaseManager.save_bid_info(unique_results)
+                    logger.info(f"💾 FR_BOAMP 데이터베이스 저장 완료: {len(unique_results)}건")
+                except Exception as e:
+                    logger.error(f"❌ FR_BOAMP 데이터베이스 저장 실패: {e}")
+            else:
+                logger.info("📝 FR_BOAMP 저장할 데이터가 없습니다")
+
             return {
                 "success": True,
                 "total_collected": len(unique_results),

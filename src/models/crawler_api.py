@@ -15,6 +15,17 @@ class CrawlerRequest(BaseModel):
         description="검색할 키워드 목록. 기본값은 설정된 씨젠 키워드 사용"
     )
 
+    def __init__(self, **data):
+        super().__init__(**data)
+        # 잘못된 키워드 필터링
+        if self.keywords:
+            # 'string' 키워드가 포함된 경우 제거
+            if 'string' in self.keywords:
+                self.keywords = None
+            # 빈 문자열이나 잘못된 타입이 있는 경우 제거
+            elif any(not isinstance(k, str) or len(k.strip()) == 0 for k in self.keywords):
+                self.keywords = None
+
 
 class CrawlerResult(BaseModel):
     """크롤링 결과 모델"""
