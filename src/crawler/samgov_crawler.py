@@ -119,9 +119,6 @@ class SAMGovCrawler(BaseCrawler):
 
                 elif response.status_code == 401:
                     logger.warning(f"API 인증 실패 (401): API 키를 확인하세요")
-                    # 더미 데이터 생성
-                    dummy_results = self._generate_dummy_api_results(keyword)
-                    results.extend(dummy_results)
                 else:
                     logger.warning(f"API 호출 실패: {response.status_code} - {response.text[:200]}")
 
@@ -153,9 +150,6 @@ class SAMGovCrawler(BaseCrawler):
                     logger.info(f"검색어 '{keyword}' 입력 완료")
                 else:
                     logger.warning("검색 필드를 찾을 수 없습니다")
-                    # 더미 데이터 생성
-                    dummy_results = self._generate_dummy_web_results(keyword)
-                    results.extend(dummy_results)
                     continue
 
                 # Opportunities 탭/필터 클릭

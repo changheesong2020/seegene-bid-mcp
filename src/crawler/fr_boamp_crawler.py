@@ -383,22 +383,30 @@ class FranceBOAMPCrawler(BaseCrawler):
                     if keywords and not self._matches_keywords(title_text + " " + description_text, keywords):
                         continue
 
-                    # 공고 정보 구성
+                    # 데이터베이스 모델에 맞는 공고 정보 구성
                     tender_info = {
-                        "title": title_text.strip(),
-                        "description": description_text.strip(),
-                        "source_url": link_url.strip(),
-                        "publication_date": self._parse_date(pub_date_text),
-                        "source_site": "BOAMP",
-                        "country": "FR",
-                        "currency": "EUR",
-                        "tender_type": self._determine_tender_type(title_text),
+                        "title": title_text.strip()[:500],  # 길이 제한
                         "organization": self._extract_organization(description_text),
-                        "cpv_codes": self._extract_cpv_codes(description_text),
-                        "estimated_value": self._extract_value(description_text),
-                        "deadline_date": self._extract_deadline(description_text),
-                        "notice_type": "RSS",
-                        "language": "fr"
+                        "bid_number": f"FR-RSS-{datetime.now().strftime('%Y%m%d')}-{len(results)+1:03d}",
+                        "announcement_date": self._parse_date(pub_date_text),
+                        "deadline_date": self._extract_deadline(description_text) or self._estimate_deadline_date(),
+                        "estimated_price": str(self._extract_value(description_text)) if self._extract_value(description_text) else "",
+                        "currency": "EUR",
+                        "source_url": link_url.strip(),
+                        "source_site": "FR_BOAMP",
+                        "country": "FR",
+                        "keywords": keywords or [],
+                        "relevance_score": self._calculate_relevance_score(title_text, keywords[0] if keywords else ""),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": description_text.strip()[:1000],  # 길이 제한
+                            "tender_type": self._determine_tender_type(title_text),
+                            "cpv_codes": self._extract_cpv_codes(description_text),
+                            "notice_type": "RSS",
+                            "language": "fr",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 필터링
@@ -599,19 +607,29 @@ class FranceBOAMPCrawler(BaseCrawler):
 
                     title_clean = re.sub(r'<[^>]+>', '', title).strip()
 
+                    # 데이터베이스 모델에 맞는 구조로 수정
                     tender_info = {
                         "title": title_clean[:200],
-                        "description": f"검색 키워드: {keyword}",
-                        "source_url": link_url,
-                        "publication_date": datetime.now().date().isoformat(),
-                        "source_site": "BOAMP",
-                        "country": "FR",
+                        "organization": self._extract_organization(title_clean),
+                        "bid_number": f"FR-{datetime.now().strftime('%Y%m%d')}-{i+1:03d}",
+                        "announcement_date": datetime.now().date().isoformat(),
+                        "deadline_date": self._estimate_deadline_date(),
+                        "estimated_price": "",  # BOAMP에서는 가격 정보 제한적
                         "currency": "EUR",
-                        "tender_type": self._determine_tender_type(title_clean),
-                        "organization": "프랑스 공공기관",
+                        "source_url": link_url or f"https://www.boamp.fr/search?q={keyword}",
+                        "source_site": "FR_BOAMP",
+                        "country": "FR",
                         "keywords": [keyword],
-                        "notice_type": "WEB_SEARCH",
-                        "language": "fr"
+                        "relevance_score": self._calculate_relevance_score(title_clean, keyword),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": f"검색 키워드: {keyword}",
+                            "tender_type": self._determine_tender_type(title_clean),
+                            "notice_type": "WEB_SEARCH",
+                            "language": "fr",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 필터링
@@ -668,6 +686,57 @@ class FranceBOAMPCrawler(BaseCrawler):
                 return match.group(1).strip()
 
         return "프랑스 공공기관"
+
+    def _extract_organization(self, title: str) -> str:
+        """제목에서 기관명 추출"""
+        import re
+
+        # 프랑스 기관명 패턴들
+        org_patterns = [
+            r"(CHU [^,\n\-]+)",
+            r"(Hôpital [^,\n\-]+)",
+            r"(APHP[^,\n\-]*)",
+            r"(Centre [^,\n\-]+)",
+            r"(Université [^,\n\-]+)",
+            r"(Ministère [^,\n\-]+)",
+        ]
+
+        for pattern in org_patterns:
+            match = re.search(pattern, title, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+
+        return "프랑스 공공기관"
+
+    def _estimate_deadline_date(self) -> str:
+        """마감일 추정 (BOAMP에서 정확한 날짜를 얻기 어려우므로)"""
+        from datetime import timedelta
+        estimated_deadline = datetime.now() + timedelta(days=30)
+        return estimated_deadline.date().isoformat()
+
+    def _calculate_relevance_score(self, title: str, keyword: str) -> float:
+        """관련성 점수 계산"""
+        if not title or not keyword:
+            return 5.0
+
+        title_lower = title.lower()
+        keyword_lower = keyword.lower()
+
+        # 기본 점수
+        score = 5.0
+
+        # 키워드가 제목에 있으면 점수 증가
+        if keyword_lower in title_lower:
+            score += 2.0
+
+        # 의료 관련 키워드가 있으면 점수 증가
+        medical_keywords = ['medical', 'health', 'hospital', 'clinical', 'diagnostic']
+        for med_keyword in medical_keywords:
+            if med_keyword in title_lower:
+                score += 1.0
+                break
+
+        return min(score, 10.0)  # 최대 10점
 
     def _extract_cpv_codes(self, text: str) -> List[str]:
         """CPV 코드 추출"""
