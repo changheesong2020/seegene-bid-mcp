@@ -6,18 +6,50 @@
 
 ### 현재 지원
 - 🇰🇷 **G2B (나라장터)**: 한국 정부 조달 API
-- 🇺🇸 **SAM.gov**: 미국 정부 조달 시스템
-- 🇪🇺 **TED**: EU 공식 입찰공고 플랫폼
-- 🇬🇧 **UK FTS**: 영국 Find a Tender Service
+  - 공식 사이트: https://www.g2b.go.kr
+  - API 엔드포인트: http://apis.data.go.kr/1230000/ad/BidPublicInfoService
+  - 데이터 포털: https://data.go.kr
 
-### 향후 확장 예정
+- 🇺🇸 **SAM.gov**: 미국 정부 조달 시스템
+  - 공식 사이트: https://sam.gov
+  - API 엔드포인트: https://api.sam.gov/opportunities/v2/search
+  - 검색 페이지: https://sam.gov/search
+
+- 🇪🇺 **TED**: EU 공식 입찰공고 플랫폼
+  - 공식 사이트: https://ted.europa.eu
+  - API 엔드포인트: https://api.ted.europa.eu
+  - 이노티스 포털: https://enotices.ted.europa.eu
+
+- 🇬🇧 **UK FTS**: 영국 Find a Tender Service
+  - 공식 사이트: https://www.find-tender.service.gov.uk
+  - API 엔드포인트: https://www.find-tender.service.gov.uk/api/1.0
+  - 구 Contracts Finder: https://www.contractsfinder.service.gov.uk
+
+### 추가 지원 플랫폼
 - 🇫🇷 **BOAMP**: 프랑스 공공조달
+  - 공식 사이트: https://www.boamp.fr
+  - PLACE 플랫폼: https://www.marches-publics.gouv.fr
+
+- 🇩🇪 **독일 Vergabestellen**: 독일 공공조달
+  - 독일 조달 포털: https://www.deutsches-vergabeportal.de
+  - eVergabe: https://www.evergabe.de
+  - 연방 조달: https://www.evergabe-online.de
+  - 바이에른: https://www.vergabe24.bayern.de
+  - NRW: https://www.vergabe.nrw.de
+
+- 🇳🇱 **TenderNed**: 네덜란드 공공조달
+  - 공식 사이트: https://www.tenderned.nl
+
 - 🇪🇸 **PCSP**: 스페인 공공조달
-- 🇩🇪 **bund.de**: 독일 연방조달
+  - 공식 사이트: https://contrataciondelestado.es
+
+- 🇮🇹 **MEPA**: 이탈리아 공공조달
+  - 공식 사이트: https://www.acquistinretepa.it
+  - GARE: https://www.gare.consip.it
 
 ## 🚀 주요 기능
 
-- **🌐 글로벌 입찰 수집**: 4개국 주요 조달 플랫폼 통합 모니터링
+- **🌐 글로벌 입찰 수집**: 8개국 주요 조달 플랫폼 통합 모니터링
 - **🏥 헬스케어 특화**: CPV 코드 기반 의료/진단 관련 입찰 자동 필터링
 - **🤖 MCP 프로토콜 지원**: Claude, Cursor 등 AI 도구와 연동
 - **🔄 실시간 동기화**: 자동 스케줄링 및 백그라운드 수집
@@ -35,12 +67,17 @@ seegene-bid-mcp/
 │   ├── database/              # SQLite DB 스키마
 │   ├── models/                # 통합 데이터 모델
 │   │   └── tender_notice.py   # TenderNotice 표준 스키마
-│   ├── crawler/               # 크롤러 모듈
-│   │   ├── manager.py         # 크롤러 매니저
-│   │   ├── g2b_crawler.py     # 한국 G2B API
-│   │   ├── samgov_crawler.py  # 미국 SAM.gov
-│   │   ├── ted_crawler.py     # EU TED API
-│   │   └── uk_fts_crawler.py  # 영국 FTS OCDS
+│   ├── crawler/                        # 크롤러 모듈
+│   │   ├── manager.py                  # 크롤러 매니저
+│   │   ├── g2b_crawler.py              # 한국 G2B API
+│   │   ├── samgov_crawler.py           # 미국 SAM.gov
+│   │   ├── ted_crawler.py              # EU TED API
+│   │   ├── uk_fts_crawler.py           # 영국 FTS OCDS
+│   │   ├── fr_boamp_crawler.py         # 프랑스 BOAMP
+│   │   ├── de_vergabestellen_crawler.py # 독일 Vergabestellen
+│   │   ├── nl_tenderned_crawler.py     # 네덜란드 TenderNed
+│   │   ├── es_pcsp_crawler.py          # 스페인 PCSP
+│   │   └── it_mepa_crawler.py          # 이탈리아 MEPA
 │   └── utils/
 │       ├── cpv_filter.py      # CPV 헬스케어 필터
 │       └── logger.py          # 로깅 유틸
@@ -281,6 +318,11 @@ PORT=8001 python run.py
 - **문제**: `ConnectionResetError` 발생
 - **해결**: Windows 전용 asyncio 설정 및 graceful shutdown 구현
 
+**6. 401 인증 오류 해결됨 ✅**
+- **문제**: SSL 인증서 검증 실패로 인한 401 에러
+- **해결**: SSL 컨텍스트 우회 설정 및 User-Agent 헤더 최적화
+- **결과**: 모든 크롤러에서 안정적인 API 접근
+
 ## 🏥 헬스케어 특화 기능
 
 ### CPV 코드 기반 필터링
@@ -294,11 +336,24 @@ PORT=8001 python run.py
 
 ### 다국어 키워드 매칭
 
-- **한국어**: 진단키트, PCR, 분자진단, 체외진단
-- **영어**: diagnostic kit, PCR test, molecular diagnostic, IVD
-- **프랑스어**: diagnostic, trousse de test, réactif
-- **독일어**: diagnostik, testkit, reagenz
-- **스페인어**: diagnóstico, kit de prueba, reactivo
+#### 핵심 진단키트 키워드
+- **한국어**: PCR, 진단키트, 진단, 검사키트, 시약, RT-PCR, 면역분석, 측면유동, 현장진료, 코로나, 인플루엔자, 호흡기, 분자진단, 체외진단, 병원체검출, 스크리닝
+
+- **영어**: diagnostic, test kit, assay, reagent, pcr, rt-pcr, elisa, immunoassay, lateral flow, point of care, covid, coronavirus, influenza, respiratory, molecular diagnostic, in vitro diagnostic, ivd, pathogen detection, biomarker, screening
+
+- **프랑스어**: diagnostic, trousse de test, réactif, pcr, immunoessai, point de soins, covid, grippe
+
+- **독일어**: diagnostik, testkit, reagenz, pcr, immunoassay, point-of-care, covid, grippe
+
+- **스페인어**: diagnóstico, kit de prueba, reactivo, pcr, inmunoensayo, punto de atención, covid, gripe
+
+#### 광범위 헬스케어 키워드 (TED 플랫폼용)
+- **영어**: medical, healthcare, health, diagnostic, laboratory, hospital, pharmaceutical, biomedical, clinical, equipment, device, reagent, vaccine, medicine, therapy, surgical, biotechnology, biotech, life science, research, testing, analysis, screening, monitoring, treatment, care, medic, pharma, bio, lab, test, drug, molecular
+
+- **유럽 다국어**: médical, santé (프랑스어), medizin, gesundheit (독일어), medicale, salute (이탈리아어)
+
+#### 프랑스 BOAMP 특화 키워드
+- **프랑스어**: médical, médecin, santé, hôpital, clinique, diagnostic, laboratoire, équipement médical, dispositif médical, matériel médical, chu, aphp
 
 ### 관련성 점수 계산
 
@@ -309,11 +364,11 @@ PORT=8001 python run.py
 
 ## 📦 다음 단계
 
-1. **추가 플랫폼 확장**: 프랑스, 독일, 스페인 조달 플랫폼
-2. **AI 기반 분석**: 입찰 성공 확률 예측
-3. **알림 시스템**: 이메일/Slack 실시간 알림
-4. **웹 대시보드**: 시각화된 관리 인터페이스
-5. **모바일 앱**: 실시간 입찰 모니터링
+1. **추가 데이터 소스**: 아시아 태평양 지역 조달 플랫폼 확장
+2. **AI 기반 분석**: 입찰 성공 확률 예측 및 경쟁 분석
+3. **알림 시스템**: 이메일/Slack/Teams 실시간 알림
+4. **웹 대시보드**: 시각화된 관리 인터페이스 및 분석 도구
+5. **모바일 앱**: 실시간 입찰 모니터링 및 알림
 
 ## ⚡ 빠른 시작 체크리스트
 
