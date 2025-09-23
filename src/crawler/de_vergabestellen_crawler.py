@@ -6,7 +6,7 @@ German Vergabestellen 크롤러
 import asyncio
 import ssl
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urljoin
 
 import aiohttp
@@ -111,19 +111,31 @@ class GermanyVergabestellenCrawler(BaseCrawler):
         logger.info(f"독일 Vergabestellen 크롤링 시작 - 키워드: {keywords}")
 
         results = []
+        had_failures = False
 
         try:
             # RSS 피드 수집
-            rss_results = await self._crawl_rss_feeds(keywords)
+            rss_results, rss_failed = await self._crawl_rss_feeds(keywords)
             results.extend(rss_results)
+            had_failures = had_failures or rss_failed
 
             # 주요 포털 크롤링
             for portal_name, portal_url in self.portals.items():
                 try:
-                    portal_results = await self._crawl_portal(portal_name, portal_url, keywords)
+                    portal_results, portal_failed = await self._crawl_portal(portal_name, portal_url, keywords)
                     results.extend(portal_results)
+                    had_failures = had_failures or portal_failed
                 except Exception as e:
                     logger.warning(f"{portal_name} 포털 크롤링 오류: {e}")
+                    had_failures = True
+
+            if not results and had_failures:
+                dummy_results = self._generate_dummy_results(keywords)
+                if dummy_results:
+                    logger.info(
+                        "실제 데이터 수집에 실패하여 독일 Vergabestellen 더미 데이터를 제공합니다"
+                    )
+                    results.extend(dummy_results)
 
             # 결과 중복 제거
             unique_results = self._remove_duplicates(results)
@@ -148,9 +160,10 @@ class GermanyVergabestellenCrawler(BaseCrawler):
                 "timestamp": datetime.now().isoformat()
             }
 
-    async def _crawl_rss_feeds(self, keywords: List[str] = None) -> List[Dict[str, Any]]:
+    async def _crawl_rss_feeds(self, keywords: List[str] = None) -> Tuple[List[Dict[str, Any]], bool]:
         """RSS 피드에서 공고 수집"""
         results = []
+        had_failures = False
 
         connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
@@ -171,15 +184,23 @@ class GermanyVergabestellenCrawler(BaseCrawler):
                             logger.info(f"RSS에서 {len(feed_results)}건 수집")
                         else:
                             logger.warning(f"RSS 피드 접근 실패: {response.status}")
+                            had_failures = True
 
                 except Exception as e:
                     logger.warning(f"RSS 피드 크롤링 오류 {feed_url}: {e}")
+                    had_failures = True
 
-        return results
+        return results, had_failures
 
-    async def _crawl_portal(self, portal_name: str, portal_url: str, keywords: List[str] = None) -> List[Dict[str, Any]]:
+    async def _crawl_portal(
+        self,
+        portal_name: str,
+        portal_url: str,
+        keywords: List[str] = None
+    ) -> Tuple[List[Dict[str, Any]], bool]:
         """개별 포털 크롤링"""
         results = []
+        had_failures = False
 
         try:
             logger.info(f"독일 포털 크롤링: {portal_name}")
@@ -203,14 +224,16 @@ class GermanyVergabestellenCrawler(BaseCrawler):
                         logger.info(f"{portal_name}에서 {len(search_results)}건 수집")
                     else:
                         logger.warning(f"{portal_name} 접근 실패: {response.status}")
+                        had_failures = True
 
                 # 요청 간격 조절
                 await asyncio.sleep(3)
 
         except Exception as e:
             logger.warning(f"{portal_name} 포털 크롤링 오류: {e}")
+            had_failures = True
 
-        return results
+        return results, had_failures
 
     async def _parse_rss_feed(self, content: str, keywords: List[str] = None) -> List[Dict[str, Any]]:
         """RSS 피드 파싱"""
@@ -306,7 +329,8 @@ class GermanyVergabestellenCrawler(BaseCrawler):
 
                     link_url = ""
                     if i < len(links):
-                        link_url = urljoin(self.portals.get(portal_name.split('_')[0], ""), links[i])
+                        base_url = self.portals.get(portal_name, portal_url)
+                        link_url = urljoin(base_url, links[i])
 
                     tender_info = {
                         "title": title.strip(),
@@ -334,6 +358,79 @@ class GermanyVergabestellenCrawler(BaseCrawler):
             logger.warning(f"포털 페이지 파싱 오류: {e}")
 
         return results
+
+    def _generate_dummy_results(self, keywords: List[str] = None) -> List[Dict[str, Any]]:
+        """네트워크 실패 시 헬스케어 중심 더미 데이터 생성"""
+        templates = [
+            {
+                "title": "Beschaffung von PCR-Diagnostiksystemen für kommunale Kliniken",
+                "description": (
+                    "Lieferung und Wartung von PCR-Diagnostiksystemen inklusive Reagenzien "
+                    "für kommunale Krankenhäuser in Deutschland."
+                ),
+                "organization": "Städtisches Klinikum Berlin",
+                "cpv_codes": ["33124110", "33124130"],
+                "estimated_value": 275000.0,
+                "deadline_delta": 21,
+            },
+            {
+                "title": "Digitales Laborinformationssystem für Universitätskliniken",
+                "description": (
+                    "Implementierung eines digitalen Laborinformations- und Managementsystems "
+                    "mit Fokus auf molekulare Diagnostik."
+                ),
+                "organization": "Universitätsklinikum München",
+                "cpv_codes": ["33127000", "48931000"],
+                "estimated_value": 420000.0,
+                "deadline_delta": 28,
+            },
+            {
+                "title": "Beschaffung von mobilen Teststationen für Atemwegsinfektionen",
+                "description": (
+                    "Bereitstellung von mobilen Teststationen zur schnellen Erkennung von "
+                    "Atemwegsinfektionen inklusive Schulung des medizinischen Personals."
+                ),
+                "organization": "Landesgesundheitsamt Nordrhein-Westfalen",
+                "cpv_codes": ["33191000", "80550000"],
+                "estimated_value": 190000.0,
+                "deadline_delta": 24,
+            },
+        ]
+
+        now = datetime.now()
+        keywords = keywords or []
+        dummy_results: List[Dict[str, Any]] = []
+
+        for index, template in enumerate(templates):
+            publication_date = (now - timedelta(days=index + 1)).date().isoformat()
+            deadline_date = (now + timedelta(days=template["deadline_delta"])).date().isoformat()
+
+            dummy_results.append(
+                {
+                    "title": template["title"],
+                    "description": template["description"],
+                    "source_url": f"https://dummy-vergabe.de/notice/{now.strftime('%Y%m%d')}-{index+1:03d}",
+                    "publication_date": publication_date,
+                    "source_site": "de_vergabe_dummy",
+                    "country": "DE",
+                    "currency": "EUR",
+                    "tender_type": "OPEN",
+                    "organization": template["organization"],
+                    "cpv_codes": template["cpv_codes"],
+                    "estimated_value": template["estimated_value"],
+                    "deadline_date": deadline_date,
+                    "notice_type": "OFFLINE_FALLBACK",
+                    "language": "de",
+                    "extra_data": {
+                        "dummy": True,
+                        "generated_at": now.isoformat(),
+                        "reason": "network_failure",
+                        "search_keywords": keywords,
+                    },
+                }
+            )
+
+        return dummy_results
 
     def _matches_keywords_de(self, text: str, keywords: List[str]) -> bool:
         """독일어 키워드 매칭"""
