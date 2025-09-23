@@ -152,6 +152,27 @@ if FastMCP:
         "https://localhost",
         "https://localhost:3000",
     ]
+
+    def _serialize_mcp_tool(tool: Any) -> Dict[str, Any]:
+        """Convert an MCP tool definition into a JSON serialisable dict."""
+
+        if hasattr(tool, "model_dump"):
+            tool_data = tool.model_dump(mode="json")
+        else:
+            tool_data = {
+                "name": getattr(tool, "name", ""),
+                "description": getattr(tool, "description", ""),
+                "inputSchema": getattr(tool, "input_schema", {})
+            }
+
+        input_schema = tool_data.get("inputSchema") or {}
+        return {
+            "name": tool_data.get("name", ""),
+            "description": tool_data.get("description", ""),
+            "input_schema": input_schema,
+            "parameters": input_schema.get("properties", {}),
+            "required": input_schema.get("required", []),
+        }
     
     @mcp.tool()
     async def search_bids(
@@ -1347,6 +1368,53 @@ if FastMCP:
             "tools_count": len(mcp._tools) if hasattr(mcp, '_tools') else 0,
             "note": "⚠️ SSE transport deprecated after Aug 2025"
         }
+
+    @app.get("/mcp/tools")
+    async def list_mcp_tools_endpoint() -> Dict[str, Any]:
+        """HTTP endpoint that exposes available MCP tools for Smithery UI."""
+
+        try:
+            tools = await mcp.list_tools()
+            tool_payload = [_serialize_mcp_tool(tool) for tool in tools]
+
+            return {
+                "success": True,
+                "timestamp": datetime.now().isoformat(),
+                "server": {
+                    "name": "Seegene Bid Information Server",
+                    "transport": "sse",
+                    "version": app.version,
+                },
+                "total_tools": len(tool_payload),
+                "tools": tool_payload,
+            }
+
+        except Exception as e:
+            logger.error(f"MCP 도구 목록 조회 실패: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to list MCP tools: {e}")
+
+    @app.get("/mcp/tools/{tool_name}")
+    async def get_mcp_tool_details(tool_name: str) -> Dict[str, Any]:
+        """HTTP endpoint to fetch a single MCP tool definition."""
+
+        try:
+            tools = await mcp.list_tools()
+            for tool in tools:
+                serialized = _serialize_mcp_tool(tool)
+                if serialized["name"] == tool_name:
+                    return {
+                        "success": True,
+                        "timestamp": datetime.now().isoformat(),
+                        "tool": serialized,
+                    }
+
+            raise HTTPException(status_code=404, detail=f"MCP tool '{tool_name}' not found")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"MCP 도구 상세 조회 실패: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to get MCP tool '{tool_name}': {e}")
 
     # MCP SSE 앱에 CORS 미들웨어 적용 (Starlette 서브앱이므로 별도 설정 필요)
     mcp_sse_app = mcp.sse_app()
