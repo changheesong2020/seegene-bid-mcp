@@ -78,14 +78,18 @@ class FranceBOAMPCrawler(BaseCrawler):
         self.boamp_base_url = "https://www.boamp.fr"
         self.place_base_url = "https://www.marches-publics.gouv.fr"
 
-        # RSS/XML 피드 URL들
+        # OpenDataSoft API 엔드포인트 (BOAMP는 OpenDataSoft 플랫폼 사용)
+        self.api_base_url = f"{self.boamp_base_url}/api"
+        self.records_api = f"{self.api_base_url}/records/1.0/search/"
+
+        # RSS/XML 피드 URL들 (OpenDataSoft 형식)
         self.rss_feeds = [
-            "https://www.boamp.fr/avis/rss",
-            "https://www.boamp.fr/rss/boamp.xml"
+            f"{self.api_base_url}/records/1.0/search/?format=rss",
+            f"{self.api_base_url}/feeds/rss"
         ]
 
-        # 검색 API 엔드포인트 (추정)
-        self.search_api_url = f"{self.boamp_base_url}/api/search"
+        # 검색 페이지 URL
+        self.search_page_url = f"{self.boamp_base_url}/pages/recherche/"
 
         # CPV 코드 필터 (의료기기 관련)
         self.healthcare_cpv_codes = [
@@ -104,12 +108,18 @@ class FranceBOAMPCrawler(BaseCrawler):
         results = []
 
         try:
-            # RSS 피드 수집
-            rss_results = await self._crawl_rss_feeds(keywords)
-            results.extend(rss_results)
-
-            # 웹 검색 (키워드가 있는 경우)
+            # OpenDataSoft API 검색 (우선순위)
             if keywords:
+                api_results = await self._crawl_api_search(keywords)
+                results.extend(api_results)
+
+            # API 검색 결과가 없으면 RSS 피드 시도
+            if not results:
+                rss_results = await self._crawl_rss_feeds(keywords)
+                results.extend(rss_results)
+
+            # 여전히 결과가 없으면 웹 검색 시도
+            if not results and keywords:
                 web_results = await self._crawl_web_search(keywords)
                 results.extend(web_results)
 
@@ -135,6 +145,174 @@ class FranceBOAMPCrawler(BaseCrawler):
                 "source": "FR_BOAMP",
                 "timestamp": datetime.now().isoformat()
             }
+
+    async def _crawl_api_search(self, keywords: List[str]) -> List[Dict[str, Any]]:
+        """OpenDataSoft API를 통한 검색"""
+        results = []
+
+        connector = aiohttp.TCPConnector(ssl=create_ssl_context())
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=45),
+            connector=connector,
+            headers=DEFAULT_HEADERS,
+        ) as session:
+
+            for keyword in keywords[:3]:  # 최대 3개 키워드
+                try:
+                    logger.info(f"API 검색: {keyword}")
+
+                    # OpenDataSoft API 파라미터
+                    api_params = {
+                        "dataset": "boamp",  # 추정되는 데이터셋 이름
+                        "q": keyword,
+                        "rows": 20,
+                        "start": 0,
+                        "format": "json",
+                        "facet": ["type_de_marche", "procedure", "cpv"]
+                    }
+
+                    async with session.get(
+                        self.records_api,
+                        params=api_params,
+                        headers=DEFAULT_HEADERS,
+                    ) as response:
+                        if response.status == 200:
+                            try:
+                                data = await response.json()
+                                api_results = await self._parse_api_response(data, keyword)
+                                results.extend(api_results)
+                                logger.info(f"API에서 {len(api_results)}건 수집")
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"API 응답 JSON 파싱 오류: {e}")
+                        else:
+                            logger.warning(f"API 검색 실패: {response.status}")
+
+                    # 요청 간격 조절
+                    await asyncio.sleep(2)
+
+                except Exception as e:
+                    logger.warning(f"API 검색 오류 {keyword}: {e}")
+
+        return results
+
+    async def _parse_api_response(self, data: Dict[str, Any], keyword: str) -> List[Dict[str, Any]]:
+        """API 응답 데이터 파싱"""
+        results = []
+
+        try:
+            records = data.get("records", [])
+            total_hits = data.get("nhits", 0)
+            logger.info(f"API 응답: 총 {total_hits}건 중 {len(records)}건 처리")
+
+            for record in records:
+                try:
+                    fields = record.get("fields", {})
+                    record_id = record.get("recordid", "")
+
+                    # BOAMP 데이터는 'donnees' 필드에 JSON 문자열로 저장됨
+                    donnees_str = fields.get("donnees", "")
+                    nature_libelle = fields.get("nature_libelle", "")
+
+                    title = ""
+                    organization = ""
+                    estimated_value = None
+                    cpv_codes = []
+                    description = f"키워드: {keyword}"
+
+                    # JSON 데이터 파싱
+                    if donnees_str:
+                        try:
+                            donnees = json.loads(donnees_str)
+
+                            # 제목 추출
+                            if "OBJET" in donnees:
+                                objet = donnees["OBJET"]
+                                title = objet.get("TITRE_MARCHE", "")
+                                if "OBJET_COMPLET" in objet:
+                                    description = objet["OBJET_COMPLET"]
+
+                                # CPV 코드
+                                if "CPV" in objet and "PRINCIPAL" in objet["CPV"]:
+                                    cpv_codes = [objet["CPV"]["PRINCIPAL"]]
+
+                                # 가격 정보
+                                if "CARACTERISTIQUES" in objet and "VALEUR" in objet["CARACTERISTIQUES"]:
+                                    valeur = objet["CARACTERISTIQUES"]["VALEUR"]
+                                    if isinstance(valeur, dict) and "#text" in valeur:
+                                        estimated_value = self._parse_value(valeur["#text"])
+                                    elif isinstance(valeur, str):
+                                        estimated_value = self._parse_value(valeur)
+
+                            # 기관명 추출
+                            if "IDENTITE" in donnees:
+                                identite = donnees["IDENTITE"]
+                                organization = identite.get("DENOMINATION", "")
+
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"JSON 파싱 오류: {e}")
+                            # JSON 파싱 실패시 기본값 사용
+                            title = f"BOAMP 공고 - {keyword}"
+
+                    # 기본값 설정
+                    if not title:
+                        title = f"BOAMP 공고 - {keyword}"
+                    if not organization:
+                        organization = "프랑스 공공기관"
+
+                    # URL 구성
+                    source_url = f"{self.boamp_base_url}/avis/{record_id}" if record_id else ""
+
+                    tender_info = {
+                        "title": title[:200].strip(),
+                        "description": description[:500] if description else f"키워드: {keyword}",
+                        "organization": organization.strip(),
+                        "source_url": source_url,
+                        "publication_date": "",  # API 응답에서 직접 날짜 정보를 찾지 못함
+                        "deadline_date": "",
+                        "estimated_value": estimated_value,
+                        "currency": "EUR",
+                        "source_site": "BOAMP",
+                        "country": "FR",
+                        "cpv_codes": cpv_codes,
+                        "keywords": [keyword],
+                        "tender_type": self._determine_tender_type(title),
+                        "notice_type": "API",
+                        "language": "fr",
+                        "record_id": record_id,
+                        "nature": nature_libelle
+                    }
+
+                    # 의료기기 관련 필터링
+                    if self._is_healthcare_related(tender_info):
+                        results.append(tender_info)
+                        logger.debug(f"의료기기 관련 공고 발견: {title[:100]}")
+
+                except Exception as e:
+                    logger.warning(f"API 레코드 파싱 오류: {e}")
+                    continue
+
+        except Exception as e:
+            logger.warning(f"API 응답 파싱 오류: {e}")
+
+        return results
+
+    def _parse_value(self, value_str: str) -> Optional[float]:
+        """가격 문자열을 숫자로 변환"""
+        if not value_str:
+            return None
+
+        try:
+            # 숫자가 아닌 문자 제거
+            import re
+            numeric_str = re.sub(r'[^\d.,]', '', str(value_str))
+            numeric_str = numeric_str.replace(',', '.')
+
+            if numeric_str:
+                return float(numeric_str)
+        except (ValueError, TypeError):
+            pass
+
+        return None
 
     async def _crawl_rss_feeds(self, keywords: List[str] = None) -> List[Dict[str, Any]]:
         """RSS 피드에서 공고 수집"""
@@ -241,11 +419,11 @@ class FranceBOAMPCrawler(BaseCrawler):
                     logger.info(f"웹 검색: {keyword}")
 
                     # BOAMP 검색 페이지
-                    search_url = f"{self.boamp_base_url}/avis"
+                    search_url = self.search_page_url
                     search_params = {
-                        "query": keyword,
-                        "type": "marches",
-                        "sort": "date_desc"
+                        "q": keyword,
+                        "search": keyword,
+                        "type": "all"
                     }
 
                     async with session.get(
@@ -274,48 +452,167 @@ class FranceBOAMPCrawler(BaseCrawler):
         results = []
 
         try:
-            # BeautifulSoup 사용 대신 간단한 정규표현식 패턴 매칭 시도
-            # 실제 구현에서는 BeautifulSoup4를 사용하는 것이 좋음
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
 
-            # 제목과 링크 패턴 추출 (예시)
+            # OpenDataSoft 기반 결과 검색
+            result_items = soup.find_all(['div', 'article'], class_=lambda x: x and ('record' in x.lower() or 'result' in x.lower() or 'notice' in x.lower()))
+
+            if not result_items:
+                # 일반적인 HTML 구조에서 검색 결과 찾기
+                result_items = soup.find_all(['div', 'article', 'li'], class_=lambda x: x and any(term in x.lower() for term in ['item', 'entry', 'card', 'box']))
+
+            if not result_items:
+                # 제목 태그로 검색 시도
+                result_items = soup.find_all(['h2', 'h3', 'h4'])
+
+            logger.info(f"HTML에서 {len(result_items)}개 요소 발견")
+
+            for item in result_items[:10]:  # 최대 10개
+                try:
+                    title = ""
+                    link_url = ""
+                    organization = ""
+                    description = ""
+
+                    # 제목 추출
+                    title_elem = item.find(['h1', 'h2', 'h3', 'h4', 'h5'])
+                    if title_elem:
+                        title = title_elem.get_text(strip=True)
+                    elif item.name in ['h1', 'h2', 'h3', 'h4', 'h5']:
+                        title = item.get_text(strip=True)
+
+                    # 링크 추출
+                    link_elem = item.find('a', href=True)
+                    if link_elem:
+                        link_url = urljoin(self.boamp_base_url, link_elem['href'])
+                    elif item.name == 'a' and item.get('href'):
+                        link_url = urljoin(self.boamp_base_url, item['href'])
+
+                    # 기관명 추출
+                    org_elem = item.find(string=lambda text: text and ('ministère' in text.lower() or 'mairie' in text.lower() or 'conseil' in text.lower()))
+                    if org_elem:
+                        organization = org_elem.strip()
+
+                    # 설명 추출
+                    desc_elem = item.find(['p', 'div'], class_=lambda x: x and 'description' in x.lower())
+                    if desc_elem:
+                        description = desc_elem.get_text(strip=True)
+
+                    # 키워드가 포함된 경우만 처리
+                    full_text = f"{title} {description}".lower()
+                    if keyword.lower() not in full_text:
+                        continue
+
+                    if title:  # 제목이 있는 경우만 처리
+                        tender_info = {
+                            "title": title[:200],  # 제목 길이 제한
+                            "description": description[:500] if description else f"검색 키워드: {keyword}",
+                            "organization": organization if organization else "프랑스 공공기관",
+                            "source_url": link_url,
+                            "publication_date": datetime.now().date().isoformat(),
+                            "source_site": "BOAMP",
+                            "country": "FR",
+                            "currency": "EUR",
+                            "tender_type": self._determine_tender_type(title),
+                            "keywords": [keyword],
+                            "notice_type": "WEB_SEARCH",
+                            "language": "fr"
+                        }
+
+                        # 의료기기 관련 필터링
+                        if self._is_healthcare_related(tender_info):
+                            results.append(tender_info)
+
+                except Exception as e:
+                    logger.warning(f"검색 결과 아이템 파싱 오류: {e}")
+                    continue
+
+            # BeautifulSoup가 없는 경우 정규표현식 사용
+        except ImportError:
+            logger.warning("BeautifulSoup4가 없어 정규표현식 파싱 사용")
+            results = await self._parse_search_results_regex(html_content, keyword)
+        except Exception as e:
+            logger.warning(f"HTML 파싱 오류: {e}")
+            # 정규표현식 파싱으로 폴백
+            results = await self._parse_search_results_regex(html_content, keyword)
+
+        return results
+
+    async def _parse_search_results_regex(self, html_content: str, keyword: str) -> List[Dict[str, Any]]:
+        """정규표현식을 이용한 검색 결과 파싱 (폴백)"""
+        results = []
+
+        try:
             import re
 
-            # 공고 제목 패턴
-            title_pattern = r'<h[2-4][^>]*>([^<]*(?:marché|appel|consultation)[^<]*)</h[2-4]>'
-            titles = re.findall(title_pattern, html_content, re.IGNORECASE)
+            # 개선된 패턴들
+            patterns = [
+                # 프랑스 공공조달 관련 제목 패턴
+                r'<h[2-4][^>]*>([^<]*(?:marché|appel|consultation|avis|offre)[^<]*)</h[2-4]>',
+                # 일반적인 제목 패턴
+                r'<h[2-4][^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)</h[2-4]>',
+                # data-* 속성이 있는 제목
+                r'data-title="([^"]*)',
+                # aria-label 속성
+                r'aria-label="([^"]*(?:marché|appel|consultation)[^"]*)"'
+            ]
 
-            # 링크 패턴
-            link_pattern = r'href="([^"]*avis[^"]*)"'
-            links = re.findall(link_pattern, html_content)
+            all_titles = []
+            for pattern in patterns:
+                titles = re.findall(pattern, html_content, re.IGNORECASE | re.DOTALL)
+                all_titles.extend(titles)
+
+            # 링크 패턴 (더 포괄적)
+            link_patterns = [
+                r'href="([^"]*(?:avis|notice|marche)[^"]*)"',
+                r'href="(/[^"]*detail[^"]*)"',
+                r'href="(/[^"]*record[^"]*)"'
+            ]
+
+            all_links = []
+            for pattern in link_patterns:
+                links = re.findall(pattern, html_content, re.IGNORECASE)
+                all_links.extend(links)
 
             # 제목과 링크 매칭
-            for i, title in enumerate(titles[:10]):  # 최대 10개
+            for i, title in enumerate(all_titles[:10]):
                 try:
-                    link_url = urljoin(self.boamp_base_url, links[i] if i < len(links) else "")
+                    # 키워드 필터링
+                    if keyword.lower() not in title.lower():
+                        continue
+
+                    link_url = ""
+                    if i < len(all_links):
+                        link_url = urljoin(self.boamp_base_url, all_links[i])
+
+                    title_clean = re.sub(r'<[^>]+>', '', title).strip()
 
                     tender_info = {
-                        "title": title.strip(),
+                        "title": title_clean[:200],
                         "description": f"검색 키워드: {keyword}",
                         "source_url": link_url,
                         "publication_date": datetime.now().date().isoformat(),
                         "source_site": "BOAMP",
                         "country": "FR",
                         "currency": "EUR",
-                        "tender_type": self._determine_tender_type(title),
+                        "tender_type": self._determine_tender_type(title_clean),
                         "organization": "프랑스 공공기관",
                         "keywords": [keyword],
                         "notice_type": "WEB_SEARCH",
                         "language": "fr"
                     }
 
-                    results.append(tender_info)
+                    # 의료기기 관련 필터링
+                    if self._is_healthcare_related(tender_info):
+                        results.append(tender_info)
 
                 except Exception as e:
-                    logger.warning(f"검색 결과 아이템 파싱 오류: {e}")
+                    logger.warning(f"정규표현식 파싱 아이템 오류: {e}")
                     continue
 
         except Exception as e:
-            logger.warning(f"HTML 파싱 오류: {e}")
+            logger.warning(f"정규표현식 파싱 오류: {e}")
 
         return results
 

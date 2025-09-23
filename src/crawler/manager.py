@@ -247,6 +247,8 @@ class CrawlerManager:
                 # 새 크롤러의 결과 필드명을 기존 형식으로 변환
                 if "total_collected" in result:
                     result["total_found"] = result["total_collected"]
+                if "source" in result:
+                    result["site"] = result["source"]
                 logger.info(f"✅ {site_name} crawl() 완료: {result.get('total_found', 0)}건")
             elif site_name == "G2B":
                 # G2B 크롤러는 search_bids 메서드 사용
