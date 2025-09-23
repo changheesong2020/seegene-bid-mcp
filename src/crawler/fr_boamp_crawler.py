@@ -143,6 +143,7 @@ class FranceBOAMPCrawler(BaseCrawler):
                 "error": str(e),
                 "results": results,
                 "source": "FR_BOAMP",
+                "total_collected": 0,
                 "timestamp": datetime.now().isoformat()
             }
 

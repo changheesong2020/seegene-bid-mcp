@@ -249,6 +249,13 @@ class CrawlerManager:
                     result["total_found"] = result["total_collected"]
                 if "source" in result:
                     result["site"] = result["source"]
+
+                # 필수 필드 보장
+                if "site" not in result:
+                    result["site"] = site_name
+                if "total_found" not in result:
+                    result["total_found"] = len(result.get("results", []))
+
                 logger.info(f"✅ {site_name} crawl() 완료: {result.get('total_found', 0)}건")
             elif site_name == "G2B":
                 # G2B 크롤러는 search_bids 메서드 사용
