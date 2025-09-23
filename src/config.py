@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     
     # 크롤링 설정
     HEADLESS_MODE: bool = True
-    
+    ENABLE_SCHEDULER: bool = False
+
     # 로깅 설정
     LOG_LEVEL: str = "INFO"
     

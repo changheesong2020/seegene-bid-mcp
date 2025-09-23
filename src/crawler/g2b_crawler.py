@@ -58,7 +58,7 @@ class G2BCrawler(BaseCrawler):
         logger.info("G2B API 크롤러 - WebDriver 정리 스킵")
 
     async def search_bids(self, keywords: List[str]) -> List[Dict[str, Any]]:
-        """입찰 정보 검색"""
+        """입찰 정보 검색 - 키워드별 개별 검색"""
         if not self.encoded_api_key:
             logger.warning("G2B API 키가 없어 검색 불가")
             return []
@@ -66,34 +66,64 @@ class G2BCrawler(BaseCrawler):
         all_results: List[Dict[str, Any]] = []
 
         try:
-            # 사용자 제공 키워드만 사용 (Seegene 키워드 확장 비활성화)
-            search_keywords = keywords
-            logger.info(f"🔍 검색 키워드: {search_keywords}")
+            # 키워드가 제공되지 않은 경우 기본 키워드 사용
+            if not keywords:
+                keywords = ["PCR", "진단키트", "분자진단", "체외진단", "의료기기"]
 
-            # BidPublicInfoService API 검색 (카테고리별)
-            for category, (operation, label) in self.operations.items():
-                log_label = label if label == category else f"{label}({category})"
-                logger.info(f"📡 G2B BidPublicInfoService - {log_label} 카테고리 검색 시작")
-                results = await self._search_bid_public_info(operation, category, search_keywords, display_name=label)
-                if results:
-                    logger.info(f"✅ {log_label} 카테고리에서 {len(results)}건 수집")
-                all_results.extend(results)
-                await asyncio.sleep(1)  # API 호출 간격 조정
+            logger.info(f"🇰🇷 G2B API 키워드별 개별 검색 시작")
+            logger.info(f"🔍 검색 키워드: {keywords}")
 
-            # 공공데이터개방표준서비스 API도 함께 검색하여 보강
-            standard_results = await self._search_standard_api(search_keywords)
-            if standard_results:
-                logger.info(f"📦 표준 API에서 추가 {len(standard_results)}건 수집")
-            all_results.extend(standard_results)
+            # 각 키워드별로 개별 검색
+            for i, keyword in enumerate(keywords, 1):
+                try:
+                    logger.info(f"[{i}/{len(keywords)}] 키워드 '{keyword}' 검색 중...")
+                    keyword_results = []
+
+                    # BidPublicInfoService API 검색 (카테고리별)
+                    for category, (operation, label) in self.operations.items():
+                        log_label = label if label == category else f"{label}({category})"
+                        logger.info(f"  📡 [{keyword}] {log_label} 카테고리 검색")
+
+                        results = await self._search_bid_public_info(
+                            operation, category, [keyword], display_name=label
+                        )
+
+                        if results:
+                            keyword_results.extend(results)
+                            logger.info(f"  ✅ [{keyword}] {log_label}에서 {len(results)}건 수집")
+                        else:
+                            logger.info(f"  ⚪ [{keyword}] {log_label} 검색 결과 없음")
+
+                        await asyncio.sleep(0.5)  # 카테고리 간 짧은 대기
+
+                    # 표준 API로도 검색
+                    try:
+                        standard_results = await self._search_standard_api([keyword])
+                        if standard_results:
+                            keyword_results.extend(standard_results)
+                            logger.info(f"  📦 [{keyword}] 표준 API에서 {len(standard_results)}건 추가")
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ [{keyword}] 표준 API 검색 실패: {e}")
+
+                    all_results.extend(keyword_results)
+                    logger.info(f"✅ 키워드 '{keyword}' 총 {len(keyword_results)}건 수집")
+
+                    # 키워드 간 대기 (API 제한 준수)
+                    if i < len(keywords):
+                        await asyncio.sleep(1)
+
+                except Exception as e:
+                    logger.warning(f"⚠️ 키워드 '{keyword}' 검색 실패: {e}")
+                    continue
 
             # 중복 제거
             unique_results = self._remove_duplicates(all_results)
 
-            logger.info(f"G2B API 검색 완료: 총 {len(unique_results)}건")
+            logger.info(f"✅ G2B 키워드별 검색 완료: 전체 {len(all_results)}건 수집 → 중복 제거 후 {len(unique_results)}건")
             return unique_results
 
         except Exception as e:
-            logger.error(f"G2B API 검색 중 오류: {e}")
+            logger.error(f"❌ G2B API 검색 중 오류: {e}")
             return all_results
 
     async def _search_bid_public_info(

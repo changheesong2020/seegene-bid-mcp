@@ -50,9 +50,12 @@ async def lifespan(app: FastAPI):
         await init_database()
         logger.info("✅ 데이터베이스 초기화 완료")
 
-        # 크롤러 스케줄러 시작
-        await crawler_manager.start_scheduler()
-        logger.info("✅ 크롤러 스케줄러 시작 완료")
+        # 크롤러 스케줄러 시작 (설정에 따라)
+        if settings.ENABLE_SCHEDULER:
+            await crawler_manager.start_scheduler()
+            logger.info("✅ 크롤러 스케줄러 시작 완료")
+        else:
+            logger.info("⏸️ 크롤러 스케줄러 비활성화됨 (ENABLE_SCHEDULER=False)")
     except Exception as e:
         logger.error(f"❌ 초기화 실패: {e}")
 
@@ -60,7 +63,8 @@ async def lifespan(app: FastAPI):
 
     # 종료 시 - 안전한 종료
     try:
-        await crawler_manager.stop_scheduler()
+        if settings.ENABLE_SCHEDULER:
+            await crawler_manager.stop_scheduler()
         logger.info("🛑 서버 종료 중...")
     except Exception as e:
         logger.warning(f"종료 중 오류 (무시됨): {e}")
