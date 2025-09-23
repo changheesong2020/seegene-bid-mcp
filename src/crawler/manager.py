@@ -223,7 +223,8 @@ class CrawlerManager:
             return {
                 "success": False,
                 "error": f"알 수 없는 사이트: {site_name}",
-                "site": site_name
+                "site": site_name,
+                "total_found": 0
             }
 
         crawler = self.crawlers[site_name]
@@ -237,12 +238,21 @@ class CrawlerManager:
                     else crawler_config.SEEGENE_KEYWORDS['english']
                 )
 
-            # 크롤러 실행 (새 크롤러들은 crawl 메서드 사용)
+            # 크롤러 실행 (크롤러별 메서드 구분)
             if site_name in ["FR_BOAMP", "DE_VERGABESTELLEN", "IT_MEPA", "ES_PCSP", "NL_TENDERNED"]:
                 result = await crawler.crawl(keywords)
                 # 새 크롤러의 결과 필드명을 기존 형식으로 변환
                 if "total_collected" in result:
                     result["total_found"] = result["total_collected"]
+            elif site_name == "G2B":
+                # G2B 크롤러는 search_bids 메서드 사용
+                bids = await crawler.search_bids(keywords)
+                result = {
+                    "success": True,
+                    "site": site_name,
+                    "total_found": len(bids),
+                    "results": bids
+                }
             else:
                 result = await crawler.run_crawler(keywords)
 
