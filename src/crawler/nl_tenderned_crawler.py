@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from urllib.parse import urljoin, quote
 
+from bs4 import BeautifulSoup
+
 
 def create_ssl_context():
     """SSL 검증 우회를 위한 컨텍스트 생성"""
@@ -43,11 +45,23 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
         self.search_url = f"{self.tenderned_base_url}/tenderned-web/search"
         self.api_url = f"{self.tenderned_base_url}/api/search"
 
-        # RSS/XML 피드 URL들 (추정)
+        # 기본적으로 시도할 최신 RSS/XML 피드 URL 후보
         self.rss_feeds = [
-            f"{self.tenderned_base_url}/rss/aanbestedingen.xml",
-            f"{self.tenderned_base_url}/feeds/tender.rss"
+            f"{self.tenderned_base_url}/aankondigingen/overzicht.rss",
+            f"{self.tenderned_base_url}/aankondigingen/zoeken.rss",
         ]
+
+        # 과거에 사용되던 RSS 피드 URL (필요 시 폴백으로만 시도)
+        self.legacy_rss_feeds = [
+            f"{self.tenderned_base_url}/rss/aanbestedingen.xml",
+            f"{self.tenderned_base_url}/feeds/tender.rss",
+        ]
+
+        # HTTP 요청에 사용할 공통 헤더 구성
+        self._user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        )
 
         # 네덜란드어 의료 키워드
         self.medical_keywords_nl = [
@@ -67,6 +81,71 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
             "33600000",  # 의약품
             "33700000",  # 개인보호장비
         ]
+
+    def _build_headers(self, accept: Optional[str] = None) -> Dict[str, str]:
+        """TenderNed 요청에서 사용할 기본 헤더 생성"""
+        headers: Dict[str, str] = {
+            "User-Agent": self._user_agent,
+            "Accept-Language": "en-US,en;q=0.9,nl;q=0.8",
+            "Connection": "keep-alive",
+        }
+
+        if accept:
+            headers["Accept"] = accept
+
+        return headers
+
+    async def _discover_rss_feeds(self, session: aiohttp.ClientSession) -> List[str]:
+        """TenderNed 포털에서 RSS 피드 URL을 동적으로 탐색"""
+
+        discovery_pages = [
+            f"{self.tenderned_base_url}/aankondigingen",
+            f"{self.tenderned_base_url}/aankondigingen/overzicht",
+        ]
+
+        discovered: List[str] = []
+        headers = self._build_headers(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        )
+
+        for page_url in discovery_pages:
+            try:
+                logger.debug(f"네덜란드 RSS 피드 자동 탐색 시도: {page_url}")
+
+                async with session.get(page_url, headers=headers) as response:
+                    if response.status != 200:
+                        logger.debug(
+                            "RSS 피드 탐색 실패 - 상태코드 %s (%s)",
+                            response.status,
+                            page_url,
+                        )
+                        continue
+
+                    html_content = await response.text()
+                    soup = BeautifulSoup(html_content, "html.parser")
+
+                    for link_tag in soup.find_all(
+                        "link", attrs={"type": "application/rss+xml"}
+                    ):
+                        href = link_tag.get("href")
+                        if not href:
+                            continue
+
+                        full_url = urljoin(self.tenderned_base_url, href)
+                        discovered.append(full_url)
+
+            except Exception as e:
+                logger.debug(f"RSS 피드 자동 탐색 오류 {page_url}: {e}")
+
+        unique_feeds = list(dict.fromkeys(discovered))
+
+        if unique_feeds:
+            logger.info(
+                "네덜란드 RSS 피드 자동 탐색 성공 - 발견된 피드: %s",
+                unique_feeds,
+            )
+
+        return unique_feeds
 
     async def crawl(self, keywords: List[str] = None) -> Dict[str, Any]:
         """크롤링 실행"""
@@ -125,21 +204,74 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
             connector=connector
         ) as session:
 
-            for feed_url in self.rss_feeds:
+            discovered_feeds = await self._discover_rss_feeds(session)
+            feed_candidates = list(dict.fromkeys(discovered_feeds + self.rss_feeds))
+
+            rss_headers = self._build_headers(
+                "application/rss+xml,application/xml;q=0.9,*/*;q=0.8"
+            )
+
+            successful_response = False
+            attempted_feeds = set()
+
+            for feed_url in feed_candidates:
+                if not feed_url:
+                    continue
+
+                attempted_feeds.add(feed_url)
+
                 try:
                     logger.info(f"네덜란드 RSS 피드 크롤링: {feed_url}")
 
-                    async with session.get(feed_url) as response:
+                    async with session.get(feed_url, headers=rss_headers) as response:
                         if response.status == 200:
+                            successful_response = True
                             content = await response.text()
                             feed_results = await self._parse_rss_feed(content, keywords)
                             results.extend(feed_results)
                             logger.info(f"RSS에서 {len(feed_results)}건 수집")
+                        elif response.status == 404:
+                            logger.info(f"RSS 피드가 존재하지 않음(404): {feed_url}")
                         else:
-                            logger.warning(f"RSS 피드 접근 실패: {response.status}")
+                            logger.warning(
+                                "RSS 피드 접근 실패(%s): %s",
+                                response.status,
+                                feed_url,
+                            )
 
                 except Exception as e:
                     logger.warning(f"RSS 피드 크롤링 오류 {feed_url}: {e}")
+
+            if not successful_response:
+                logger.info("신규 RSS 피드에서 데이터를 수집하지 못해 폴백 피드를 시도합니다.")
+
+                for feed_url in self.legacy_rss_feeds:
+                    if feed_url in attempted_feeds:
+                        continue
+
+                    try:
+                        logger.info(f"네덜란드 레거시 RSS 피드 크롤링: {feed_url}")
+
+                        async with session.get(feed_url, headers=rss_headers) as response:
+                            if response.status == 200:
+                                content = await response.text()
+                                feed_results = await self._parse_rss_feed(content, keywords)
+                                results.extend(feed_results)
+                                logger.info(f"레거시 RSS에서 {len(feed_results)}건 수집")
+                            elif response.status == 404:
+                                logger.info(
+                                    "레거시 RSS 피드가 존재하지 않음(404): %s",
+                                    feed_url,
+                                )
+                            else:
+                                logger.warning(
+                                    "레거시 RSS 피드 접근 실패(%s): %s",
+                                    response.status,
+                                    feed_url,
+                                )
+
+                    except Exception as e:
+                        logger.warning(f"레거시 RSS 피드 크롤링 오류 {feed_url}: {e}")
 
         return results
 
