@@ -270,11 +270,10 @@ class UKFTSCrawler(BaseCrawler):
         try:
             session = await self._get_session()
 
-            # 새로운 엔드포인트들 시도 (더 간단한 파라미터)
+            # 새로운 엔드포인트들 시도 (2025년 업데이트)
             backup_endpoints = [
                 ("https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages", {"limit": "50"}),
                 ("https://www.find-tender.service.gov.uk/api/1.0/ocdsRecordPackages", {"limit": "50"}),
-                ("https://www.contractsfinder.service.gov.uk/api/rest/2/live.json", params)
             ]
 
             for backup_url, backup_params in backup_endpoints:
@@ -382,7 +381,7 @@ class UKFTSCrawler(BaseCrawler):
             return None
 
     def _build_source_url(self, notice_data: Dict, notice_id: str) -> str:
-        """공고 세부 페이지 URL 생성."""
+        """공고 세부 페이지 URL 생성 (2025년 업데이트)"""
 
         # 1. API 응답에 직접 포함된 URL 사용
         link_fields = [
@@ -404,32 +403,34 @@ class UKFTSCrawler(BaseCrawler):
             if isinstance(candidate, str) and candidate.strip():
                 return candidate.strip()
 
-        # 2. Contracts Finder 공고 GUID 패턴 처리
+        # 2. Find a Tender notice ID 패턴 처리 (nnnnnn-yyyy 형식)
+        if notice_id and self._looks_like_fts_notice_number(notice_id):
+            return f"https://www.find-tender.service.gov.uk/Notice/{notice_id}"
+
+        # 3. OCID에서 notice ID 추출 시도
+        ocid = notice_data.get("ocid", "")
+        if ocid:
+            # OCID 형식: ocds-h6vhtk-nnnnnn-yyyy
+            extracted_notice_id = self._extract_notice_id_from_ocid(ocid)
+            if extracted_notice_id and self._looks_like_fts_notice_number(extracted_notice_id):
+                return f"https://www.find-tender.service.gov.uk/Notice/{extracted_notice_id}"
+
+        # 4. tender identifiers에서 notice ID 찾기
+        tender = notice_data.get("tender", {})
+        identifiers = tender.get("identifiers", [])
+        for identifier in identifiers:
+            if isinstance(identifier, dict):
+                scheme = identifier.get("scheme", "")
+                value = identifier.get("id", "")
+                if scheme == "Find a Tender" and self._looks_like_fts_notice_number(value):
+                    return f"https://www.find-tender.service.gov.uk/Notice/{value}"
+
+        # 5. 구 Contracts Finder 공고 GUID 패턴 처리 (호환성 유지)
         if notice_id and self._is_guid(notice_id):
-            return (
-                "https://www.contractsfinder.service.gov.uk/Notice/"
-                f"NoticeView?noticeId={notice_id}"
-            )
+            return f"https://www.contractsfinder.service.gov.uk/Notice/NoticeView?noticeId={notice_id}"
 
-        # 3. Find a Tender notice number 패턴 처리
-        tender = notice_data.get("tender")
-        tender_id_candidates = []
-        if isinstance(tender, dict):
-            tender_id_candidates.append(tender.get("id"))
-            identifiers = tender.get("identifiers")
-            if isinstance(identifiers, list):
-                for identifier in identifiers:
-                    if isinstance(identifier, dict):
-                        tender_id_candidates.append(identifier.get("id"))
-
-        tender_id_candidates.append(notice_data.get("ocid"))
-
-        for candidate in tender_id_candidates:
-            if isinstance(candidate, str) and self._looks_like_fts_notice_number(candidate):
-                return self._format_fts_notice_url(candidate)
-
-        # 4. 최종 폴백 - 도메인 루트 반환
-        return "https://www.find-tender.service.gov.uk"
+        # 6. 최종 폴백 - 검색 페이지로 연결
+        return "https://www.find-tender.service.gov.uk/Search"
 
     @staticmethod
     def _is_guid(value: str) -> bool:
@@ -452,11 +453,26 @@ class UKFTSCrawler(BaseCrawler):
         return bool(re.fullmatch(r"\d{5,6}-\d{4}", cleaned))
 
     @staticmethod
-    def _format_fts_notice_url(notice_number: str) -> str:
-        """Find a Tender 공고 상세 페이지 URL 생성."""
+    def _extract_notice_id_from_ocid(ocid: str) -> Optional[str]:
+        """OCID에서 Find a Tender notice ID 추출 (예: ocds-h6vhtk-031263-2024 -> 031263-2024)"""
+        if not isinstance(ocid, str):
+            return None
 
-        cleaned = notice_number.strip()
-        return f"https://www.find-tender.service.gov.uk/Notice/{cleaned}"
+        # OCID 패턴: ocds-h6vhtk-nnnnnn-yyyy
+        match = re.search(r"ocds-h6vhtk-(\d{5,6}-\d{4})", ocid)
+        if match:
+            return match.group(1)
+
+        # 기타 패턴들도 시도
+        parts = ocid.split("-")
+        if len(parts) >= 4:
+            # 마지막 두 부분이 숫자-연도 형식인지 확인
+            candidate = f"{parts[-2]}-{parts[-1]}"
+            if re.fullmatch(r"\d{5,6}-\d{4}", candidate):
+                return candidate
+
+        return None
+
 
     def _extract_buyer_info(self, notice_data: Dict) -> Optional[Organization]:
         """발주기관 정보 추출"""

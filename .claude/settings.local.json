@@ -4,7 +4,8 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(python test_g2b_connection.py:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "WebFetch(domain:www.contractsfinder.service.gov.uk)"
     ],
     "deny": [],
     "ask": []
