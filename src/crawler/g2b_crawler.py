@@ -96,14 +96,15 @@ class G2BCrawler(BaseCrawler):
 
                         await asyncio.sleep(0.5)  # 카테고리 간 짧은 대기
 
-                    # 표준 API로도 검색
-                    try:
-                        standard_results = await self._search_standard_api([keyword])
-                        if standard_results:
-                            keyword_results.extend(standard_results)
-                            logger.info(f"  📦 [{keyword}] 표준 API에서 {len(standard_results)}건 추가")
-                    except Exception as e:
-                        logger.warning(f"  ⚠️ [{keyword}] 표준 API 검색 실패: {e}")
+                    # 표준 API로도 검색 (일시적으로 비활성화 - 성능 개선)
+                    # try:
+                    #     standard_results = await self._search_standard_api([keyword])
+                    #     if standard_results:
+                    #         keyword_results.extend(standard_results)
+                    #         logger.info(f"  📦 [{keyword}] 표준 API에서 {len(standard_results)}건 추가")
+                    # except Exception as e:
+                    #     logger.warning(f"  ⚠️ [{keyword}] 표준 API 검색 실패: {e}")
+                    logger.info(f"  ⏭️ [{keyword}] 표준 API 검색 스킵 (성능 최적화)")
 
                     all_results.extend(keyword_results)
                     logger.info(f"✅ 키워드 '{keyword}' 총 {len(keyword_results)}건 수집")
@@ -844,6 +845,16 @@ class G2BCrawler(BaseCrawler):
         # 제공된 키워드 중 하나라도 포함되어 있으면 관련성 있음
         for keyword in keywords:
             if keyword.lower() in text:
+                return True
+
+        # Seegene 관련 키워드도 추가로 확인 (더 넓은 범위)
+        from src.config import crawler_config
+        all_seegene_keywords = []
+        all_seegene_keywords.extend(crawler_config.SEEGENE_KEYWORDS['korean'])
+        all_seegene_keywords.extend(crawler_config.SEEGENE_KEYWORDS['english'])
+
+        for seegene_keyword in all_seegene_keywords:
+            if seegene_keyword.lower() in text:
                 return True
 
         return False

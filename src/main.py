@@ -668,8 +668,10 @@ async def run_single_crawler(site_name: str, request: CrawlerRequest = None):
     """특정 사이트에서 크롤링 실행"""
     try:
         logger.info(f"수동 크롤링 실행 요청: {site_name}")
+        logger.info(f"🔍 요청 객체: {request}")
 
         keywords = request.keywords if request else None
+        logger.info(f"🔍 추출된 키워드: {keywords}")
         result = await crawler_manager.run_crawler(site_name, keywords)
 
         return CrawlerExecutionResponse(

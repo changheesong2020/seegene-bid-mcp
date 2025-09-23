@@ -232,11 +232,13 @@ class CrawlerManager:
         try:
             # 기본 키워드 사용
             if not keywords:
-                keywords = (
-                    crawler_config.SEEGENE_KEYWORDS['korean']
-                    if site_name == "G2B"
-                    else crawler_config.SEEGENE_KEYWORDS['english']
-                )
+                # G2B는 한국어 키워드 사용
+                if site_name == "G2B":
+                    keywords = crawler_config.SEEGENE_KEYWORDS['korean']
+                else:
+                    keywords = crawler_config.SEEGENE_KEYWORDS['english']
+
+                logger.info(f"🔧 {site_name} 기본 키워드 설정: {keywords}")
 
             logger.info(f"🚀 {site_name} 크롤러 실행 시작 - 키워드: {keywords}")
 
