@@ -416,4 +416,4 @@ PORT=8001 python run.py
 
 **Made with ❤️ for Seegene Global Expansion**
 
-*4개국 헬스케어 입찰 정보를 하나의 시스템으로!*
+*Global 헬스케어 입찰 정보를 하나의 시스템으로!*
