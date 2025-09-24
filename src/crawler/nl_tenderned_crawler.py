@@ -30,6 +30,7 @@ from ..models.tender_notice import (
     CurrencyCode
 )
 from ..utils.cpv_filter import cpv_filter
+from ..database.connection import DatabaseManager
 
 logger = get_logger(__name__)
 
@@ -45,10 +46,11 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
         self.search_url = f"{self.tenderned_base_url}/tenderned-web/search"
         self.api_url = f"{self.tenderned_base_url}/api/search"
 
-        # 기본적으로 시도할 최신 RSS/XML 피드 URL 후보
+        # RSS 피드 URL들 (XML 파싱 오류 때문에 주석 처리)
         self.rss_feeds = [
-            f"{self.tenderned_base_url}/aankondigingen/overzicht.rss",
-            f"{self.tenderned_base_url}/aankondigingen/zoeken.rss",
+            # XML 파싱 오류로 인해 주석 처리
+            # f"{self.tenderned_base_url}/aankondigingen/overzicht.rss",
+            # f"{self.tenderned_base_url}/aankondigingen/zoeken.rss",
         ]
 
         # 과거에 사용되던 RSS 피드 URL (필요 시 폴백으로만 시도)
@@ -176,6 +178,16 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
 
             logger.info(f"네덜란드 TenderNed 크롤링 완료 - 총 {len(unique_results)}건 수집")
 
+            # 데이터베이스에 저장
+            if unique_results:
+                try:
+                    await DatabaseManager.save_bid_info(unique_results)
+                    logger.info(f"💾 NL_TENDERNED 데이터베이스 저장 완료: {len(unique_results)}건")
+                except Exception as e:
+                    logger.error(f"❌ NL_TENDERNED 데이터베이스 저장 실패: {e}")
+            else:
+                logger.info("📝 NL_TENDERNED 저장할 데이터가 없습니다")
+
             return {
                 "success": True,
                 "total_collected": len(unique_results),
@@ -197,6 +209,10 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
     async def _crawl_rss_feeds(self, keywords: List[str] = None) -> List[Dict[str, Any]]:
         """RSS 피드에서 공고 수집"""
         results = []
+
+        if not self.rss_feeds:
+            logger.info("RSS 피드 URL이 설정되지 않음 - 스킵")
+            return results
 
         connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
@@ -423,22 +439,30 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
                     if keywords and not self._matches_keywords_nl(title_text + " " + description_text, keywords):
                         continue
 
-                    # 공고 정보 구성
+                    # 데이터베이스 스키마에 맞는 공고 정보 구성
                     tender_info = {
-                        "title": title_text.strip(),
-                        "description": description_text.strip(),
-                        "source_url": link_url.strip(),
-                        "publication_date": self._parse_date_nl(pub_date_text),
-                        "source_site": "TenderNed",
-                        "country": "NL",
+                        "title": title_text.strip()[:500],  # 길이 제한
+                        "organization": self._extract_organization_nl(description_text) or "Nederlandse Overheid",
+                        "bid_number": f"NL-RSS-{datetime.now().strftime('%Y%m%d')}-{len(results)+1:03d}",
+                        "announcement_date": self._parse_date_nl(pub_date_text),
+                        "deadline_date": self._extract_deadline_nl(description_text) or self._estimate_deadline_date_nl(),
+                        "estimated_price": str(self._extract_value_nl(description_text)) if self._extract_value_nl(description_text) else "",
                         "currency": "EUR",
-                        "tender_type": self._determine_tender_type_nl(title_text),
-                        "organization": self._extract_organization_nl(description_text),
-                        "cpv_codes": self._extract_cpv_codes(description_text),
-                        "estimated_value": self._extract_value_nl(description_text),
-                        "deadline_date": self._extract_deadline_nl(description_text),
-                        "notice_type": "RSS",
-                        "language": "nl"
+                        "source_url": link_url.strip(),
+                        "source_site": "NL_TENDERNED",
+                        "country": "NL",
+                        "keywords": keywords or [],
+                        "relevance_score": self._calculate_relevance_score_nl(title_text, keywords[0] if keywords else ""),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": description_text.strip()[:1000],  # 길이 제한
+                            "tender_type": self._determine_tender_type_nl(title_text),
+                            "cpv_codes": self._extract_cpv_codes(description_text),
+                            "notice_type": "RSS",
+                            "language": "nl",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 필터링
@@ -490,18 +514,27 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
                         link_url = urljoin(self.tenderned_base_url, links[i])
 
                     tender_info = {
-                        "title": title.strip(),
-                        "description": f"Zoekwoord: {keyword}",
-                        "source_url": link_url,
-                        "publication_date": datetime.now().date().isoformat(),
-                        "source_site": "TenderNed",
-                        "country": "NL",
+                        "title": title.strip()[:500],
+                        "organization": self._extract_organization_from_title_nl(title) or "Nederlandse Overheid",
+                        "bid_number": f"NL-WEB-{datetime.now().strftime('%Y%m%d')}-{i+1:03d}",
+                        "announcement_date": datetime.now().date().isoformat(),
+                        "deadline_date": self._estimate_deadline_date_nl(),
+                        "estimated_price": "",
                         "currency": "EUR",
-                        "tender_type": self._determine_tender_type_nl(title),
-                        "organization": self._extract_organization_from_title_nl(title),
+                        "source_url": link_url,
+                        "source_site": "NL_TENDERNED",
+                        "country": "NL",
                         "keywords": [keyword],
-                        "notice_type": "WEB_SEARCH",
-                        "language": "nl"
+                        "relevance_score": self._calculate_relevance_score_nl(title, keyword),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": f"Zoekwoord: {keyword}",
+                            "tender_type": self._determine_tender_type_nl(title),
+                            "notice_type": "WEB_SEARCH",
+                            "language": "nl",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 확인
@@ -541,20 +574,28 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
                         detail_url = f"{self.tenderned_base_url}/tender/{tender_id}"
 
                     tender_info = {
-                        "title": title.strip(),
-                        "description": description.strip(),
-                        "source_url": detail_url,
-                        "publication_date": self._parse_date_nl(tender.get("publicationDate", "")),
-                        "source_site": "TenderNed",
-                        "country": "NL",
-                        "currency": "EUR",
-                        "tender_type": self._determine_tender_type_nl(title),
+                        "title": title.strip()[:500],
                         "organization": tender.get("organization", "Nederlandse Overheid"),
-                        "estimated_value": tender.get("estimatedValue"),
-                        "deadline_date": self._parse_date_nl(tender.get("deadlineDate", "")),
+                        "bid_number": f"NL-API-{datetime.now().strftime('%Y%m%d')}-{tender_id or len(results)+1:03d}",
+                        "announcement_date": self._parse_date_nl(tender.get("publicationDate", "")),
+                        "deadline_date": self._parse_date_nl(tender.get("deadlineDate", "")) or self._estimate_deadline_date_nl(),
+                        "estimated_price": str(tender.get("estimatedValue")) if tender.get("estimatedValue") else "",
+                        "currency": "EUR",
+                        "source_url": detail_url,
+                        "source_site": "NL_TENDERNED",
+                        "country": "NL",
                         "keywords": [keyword],
-                        "notice_type": "API",
-                        "language": "nl"
+                        "relevance_score": self._calculate_relevance_score_nl(title, keyword),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": description.strip()[:1000],
+                            "tender_type": self._determine_tender_type_nl(title),
+                            "tender_id": tender_id,
+                            "notice_type": "API",
+                            "language": "nl",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 확인
@@ -595,17 +636,27 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
                         continue
 
                     tender_info = {
-                        "title": title.strip(),
-                        "description": "TenderNed hoofdportaal",
-                        "source_url": self.tenderned_base_url,
-                        "publication_date": datetime.now().date().isoformat(),
-                        "source_site": "TenderNed",
-                        "country": "NL",
-                        "currency": "EUR",
-                        "tender_type": self._determine_tender_type_nl(title),
+                        "title": title.strip()[:500],
                         "organization": "Nederlandse Overheid",
-                        "notice_type": "MAIN_PORTAL",
-                        "language": "nl"
+                        "bid_number": f"NL-PORTAL-{datetime.now().strftime('%Y%m%d')}-{len(results)+1:03d}",
+                        "announcement_date": datetime.now().date().isoformat(),
+                        "deadline_date": self._estimate_deadline_date_nl(),
+                        "estimated_price": "",
+                        "currency": "EUR",
+                        "source_url": self.tenderned_base_url,
+                        "source_site": "NL_TENDERNED",
+                        "country": "NL",
+                        "keywords": keywords or [],
+                        "relevance_score": self._calculate_relevance_score_nl(title, keywords[0] if keywords else ""),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": "TenderNed hoofdportaal",
+                            "tender_type": self._determine_tender_type_nl(title),
+                            "notice_type": "MAIN_PORTAL",
+                            "language": "nl",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 확인
@@ -820,3 +871,36 @@ class NetherlandsTenderNedCrawler(BaseCrawler):
         """입찰 정보 검색 - crawl 메서드를 호출"""
         result = await self.crawl(keywords)
         return result.get("results", [])
+
+    def _estimate_deadline_date_nl(self) -> str:
+        """마감일 추정 (네덜란드 기준 30일 후)"""
+        try:
+            estimated_date = datetime.now() + timedelta(days=30)
+            return estimated_date.date().isoformat()
+        except Exception:
+            return datetime.now().date().isoformat()
+
+    def _calculate_relevance_score_nl(self, title: str, keyword: str) -> float:
+        """관련성 점수 계산 (네덜란드어)"""
+        if not keyword or not title:
+            return 5.0
+
+        title_lower = title.lower()
+        keyword_lower = keyword.lower()
+
+        # 완전 일치
+        if keyword_lower in title_lower:
+            return 8.0
+
+        # 네덜란드어 의료 키워드 부분 일치
+        dutch_medical_keywords = [
+            "medisch", "medische", "ziekenhuis", "kliniek", "diagnostiek",
+            "laboratoire", "medische apparatuur", "gezondheidszorg", "zorg",
+            "therapie", "chirurgie", "radiologie", "cardiologie", "oncologie"
+        ]
+
+        for medical_kw in dutch_medical_keywords:
+            if medical_kw.lower() in title_lower:
+                return 7.0
+
+        return 5.0

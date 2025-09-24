@@ -179,7 +179,7 @@ if FastMCP:
         keywords: List[str],
         days_range: int = 7,
         countries: List[str] = ["KR", "US"],
-        limit: int = 50
+        limit: int = 200
     ) -> Dict[str, Any]:
         """입찰 정보 검색"""
         try:
@@ -346,7 +346,7 @@ if FastMCP:
         countries: List[str] = None,
         enable_expansion: bool = True,
         min_relevance: float = None,
-        limit: int = 50
+        limit: int = 200
     ) -> Dict[str, Any]:
         """고급 키워드 확장 검색"""
         try:
@@ -965,7 +965,7 @@ async def get_filters_help():
 
 @app.get("/bids", response_model=BidListResponse)
 async def get_all_bids(
-    limit: int = 50,
+    limit: int = 200,
     offset: int = 0,
     site: str = None,
     country: str = None,
@@ -1122,7 +1122,7 @@ async def get_bid_by_id(bid_id: int):
 @app.get("/bids/search", response_model=BidSearchResponse)
 async def search_bids_endpoint(
     q: str,
-    limit: int = 50,
+    limit: int = 200,
     offset: int = 0,
     site: str = None,
     country: str = None

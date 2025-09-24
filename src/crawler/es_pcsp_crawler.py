@@ -28,6 +28,7 @@ from ..models.tender_notice import (
     CurrencyCode
 )
 from ..utils.cpv_filter import cpv_filter
+from ..database.connection import DatabaseManager
 
 logger = get_logger(__name__)
 
@@ -42,10 +43,11 @@ class SpainPCSPCrawler(BaseCrawler):
         self.pcsp_base_url = "https://contrataciondelestado.es"
         self.search_url = f"{self.pcsp_base_url}/wps/portal/!ut/p/b1/hY1BC4IwGIafxQOeP_vG5jxqaiAoJpI3WdvHBG1Tm4T_vlxvQUD3977v-94vgAAKOJdVpXVbmEo3tm1tW5qmVrYyFWSKKlsYVSoAIKyIQAkYBUFY4jHJfD9LzjSj6eZPwz8Lh-3OeKe8U2YHYzKCHhOccgFJQgKPO6ZSKQ4nAOQAU8IhITi0HJIzCiBOIQFJmjKJY8YJg4gSjmAR8JwBM"
 
-        # RSS/XML 피드 URL들 (추정)
+        # RSS/XML 피드 URL들 (스페인 조달청의 실제 피드 경로 확인 필요)
         self.rss_feeds = [
-            f"{self.pcsp_base_url}/rss/licitaciones.xml",
-            f"{self.pcsp_base_url}/feeds/contratos.rss"
+            # 실제 작동하는 피드 URL을 찾을 때까지 주석 처리
+            # f"{self.pcsp_base_url}/rss/licitaciones.xml",
+            # f"{self.pcsp_base_url}/feeds/contratos.rss"
         ]
 
         # 스페인어 의료 키워드
@@ -91,6 +93,16 @@ class SpainPCSPCrawler(BaseCrawler):
 
             logger.info(f"스페인 PCSP 크롤링 완료 - 총 {len(unique_results)}건 수집")
 
+            # 데이터베이스에 저장
+            if unique_results:
+                try:
+                    await DatabaseManager.save_bid_info(unique_results)
+                    logger.info(f"💾 ES_PCSP 데이터베이스 저장 완료: {len(unique_results)}건")
+                except Exception as e:
+                    logger.error(f"❌ ES_PCSP 데이터베이스 저장 실패: {e}")
+            else:
+                logger.info("📝 ES_PCSP 저장할 데이터가 없습니다")
+
             return {
                 "success": True,
                 "total_collected": len(unique_results),
@@ -112,6 +124,10 @@ class SpainPCSPCrawler(BaseCrawler):
     async def _crawl_rss_feeds(self, keywords: List[str] = None) -> List[Dict[str, Any]]:
         """RSS 피드에서 공고 수집"""
         results = []
+
+        if not self.rss_feeds:
+            logger.info("RSS 피드 URL이 설정되지 않음 - 스킵")
+            return results
 
         connector = aiohttp.TCPConnector(ssl=create_ssl_context())
         async with aiohttp.ClientSession(
@@ -229,22 +245,30 @@ class SpainPCSPCrawler(BaseCrawler):
                     if keywords and not self._matches_keywords_es(title_text + " " + description_text, keywords):
                         continue
 
-                    # 공고 정보 구성
+                    # 데이터베이스 스키마에 맞는 공고 정보 구성
                     tender_info = {
-                        "title": title_text.strip(),
-                        "description": description_text.strip(),
-                        "source_url": link_url.strip(),
-                        "publication_date": self._parse_date_es(pub_date_text),
-                        "source_site": "PCSP",
-                        "country": "ES",
+                        "title": title_text.strip()[:500],  # 길이 제한
+                        "organization": self._extract_organization_es(description_text) or "Administración Pública Española",
+                        "bid_number": f"ES-RSS-{datetime.now().strftime('%Y%m%d')}-{len(results)+1:03d}",
+                        "announcement_date": self._parse_date_es(pub_date_text),
+                        "deadline_date": self._extract_deadline_es(description_text) or self._estimate_deadline_date_es(),
+                        "estimated_price": str(self._extract_value_es(description_text)) if self._extract_value_es(description_text) else "",
                         "currency": "EUR",
-                        "tender_type": self._determine_tender_type_es(title_text),
-                        "organization": self._extract_organization_es(description_text),
-                        "cpv_codes": self._extract_cpv_codes(description_text),
-                        "estimated_value": self._extract_value_es(description_text),
-                        "deadline_date": self._extract_deadline_es(description_text),
-                        "notice_type": "RSS",
-                        "language": "es"
+                        "source_url": link_url.strip(),
+                        "source_site": "ES_PCSP",
+                        "country": "ES",
+                        "keywords": keywords or [],
+                        "relevance_score": self._calculate_relevance_score_es(title_text, keywords[0] if keywords else ""),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": description_text.strip()[:1000],  # 길이 제한
+                            "tender_type": self._determine_tender_type_es(title_text),
+                            "cpv_codes": self._extract_cpv_codes(description_text),
+                            "notice_type": "RSS",
+                            "language": "es",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 필터링
@@ -295,18 +319,27 @@ class SpainPCSPCrawler(BaseCrawler):
                         link_url = urljoin(self.pcsp_base_url, links[i])
 
                     tender_info = {
-                        "title": title.strip(),
-                        "description": f"Palabra clave: {keyword}",
-                        "source_url": link_url,
-                        "publication_date": datetime.now().date().isoformat(),
-                        "source_site": "PCSP",
-                        "country": "ES",
+                        "title": title.strip()[:500],
+                        "organization": self._extract_organization_from_title_es(title) or "Administración Pública Española",
+                        "bid_number": f"ES-WEB-{datetime.now().strftime('%Y%m%d')}-{i+1:03d}",
+                        "announcement_date": datetime.now().date().isoformat(),
+                        "deadline_date": self._estimate_deadline_date_es(),
+                        "estimated_price": "",
                         "currency": "EUR",
-                        "tender_type": self._determine_tender_type_es(title),
-                        "organization": self._extract_organization_from_title_es(title),
+                        "source_url": link_url,
+                        "source_site": "ES_PCSP",
+                        "country": "ES",
                         "keywords": [keyword],
-                        "notice_type": "WEB_SEARCH",
-                        "language": "es"
+                        "relevance_score": self._calculate_relevance_score_es(title, keyword),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": f"Palabra clave: {keyword}",
+                            "tender_type": self._determine_tender_type_es(title),
+                            "notice_type": "WEB_SEARCH",
+                            "language": "es",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 확인
@@ -346,17 +379,27 @@ class SpainPCSPCrawler(BaseCrawler):
                         continue
 
                     tender_info = {
-                        "title": title.strip(),
-                        "description": "Portal PCSP principal",
-                        "source_url": self.pcsp_base_url,
-                        "publication_date": datetime.now().date().isoformat(),
-                        "source_site": "PCSP",
-                        "country": "ES",
-                        "currency": "EUR",
-                        "tender_type": self._determine_tender_type_es(title),
+                        "title": title.strip()[:500],
                         "organization": "Administración Pública Española",
-                        "notice_type": "MAIN_PORTAL",
-                        "language": "es"
+                        "bid_number": f"ES-PORTAL-{datetime.now().strftime('%Y%m%d')}-{len(results)+1:03d}",
+                        "announcement_date": datetime.now().date().isoformat(),
+                        "deadline_date": self._estimate_deadline_date_es(),
+                        "estimated_price": "",
+                        "currency": "EUR",
+                        "source_url": self.pcsp_base_url,
+                        "source_site": "ES_PCSP",
+                        "country": "ES",
+                        "keywords": keywords or [],
+                        "relevance_score": self._calculate_relevance_score_es(title, keywords[0] if keywords else ""),
+                        "urgency_level": "medium",
+                        "status": "active",
+                        "extra_data": {
+                            "description": "Portal PCSP principal",
+                            "tender_type": self._determine_tender_type_es(title),
+                            "notice_type": "MAIN_PORTAL",
+                            "language": "es",
+                            "crawled_at": datetime.now().isoformat()
+                        }
                     }
 
                     # 의료기기 관련 확인
@@ -563,3 +606,30 @@ class SpainPCSPCrawler(BaseCrawler):
         """입찰 정보 검색 - crawl 메서드를 호출"""
         result = await self.crawl(keywords)
         return result.get("results", [])
+
+    def _estimate_deadline_date_es(self) -> str:
+        """마감일 추정 (스페인 기준 30일 후)"""
+        try:
+            estimated_date = datetime.now() + timedelta(days=30)
+            return estimated_date.date().isoformat()
+        except Exception:
+            return datetime.now().date().isoformat()
+
+    def _calculate_relevance_score_es(self, title: str, keyword: str) -> float:
+        """관련성 점수 계산 (스페인어)"""
+        if not keyword or not title:
+            return 5.0
+
+        title_lower = title.lower()
+        keyword_lower = keyword.lower()
+
+        # 완전 일치
+        if keyword_lower in title_lower:
+            return 8.0
+
+        # 부분 일치
+        for medical_kw in self.medical_keywords_es:
+            if medical_kw.lower() in title_lower:
+                return 7.0
+
+        return 5.0
