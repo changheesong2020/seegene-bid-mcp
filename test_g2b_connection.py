@@ -16,7 +16,15 @@ logger = get_logger(__name__)
 class G2BConnectionTester:
     def __init__(self):
         self.g2b_api_key = settings.G2B_API_KEY
-        self.base_url = "http://apis.data.go.kr/1230000"
+        self.api_base_urls = [
+            "https://apis.data.go.kr/1230000/ad/BidPublicInfoService02",
+            "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
+            "https://apis.data.go.kr/1230000/BidPublicInfoService02",
+            "https://apis.data.go.kr/1230000/BidPublicInfoService",
+        ]
+        self.standard_api_url = (
+            "https://apis.data.go.kr/1230000/ao/PubDataOpnStdService/getDataSetOpnStdBidPblancInfo"
+        )
 
     async def test_basic_connectivity(self):
         """Basic network connectivity test"""
@@ -54,28 +62,34 @@ class G2BConnectionTester:
             return False
 
         # API endpoints to test
-        endpoints = [
-            {
-                "name": "BidPublicInfoService",
-                "url": f"{self.base_url}/BidPublicInfoService/getBidPblancListInfoServc",
-                "params": {
-                    "serviceKey": self.g2b_api_key,
-                    "pageNo": "1",
-                    "numOfRows": "1",
-                    "type": "json"
+        endpoints = []
+
+        for base_url in self.api_base_urls:
+            endpoints.append(
+                {
+                    "name": f"BidPublicInfoService ({base_url})",
+                    "url": f"{base_url}/getBidPblancListInfoServcPPSSrch",
+                    "params": {
+                        "ServiceKey": self.g2b_api_key,
+                        "pageNo": "1",
+                        "numOfRows": "1",
+                        "type": "json"
+                    }
                 }
-            },
+            )
+
+        endpoints.append(
             {
                 "name": "PublicDataStandardService",
-                "url": f"{self.base_url}/PublicDataStandardService/getBidPblancListInfoServc",
+                "url": self.standard_api_url,
                 "params": {
-                    "serviceKey": self.g2b_api_key,
+                    "ServiceKey": self.g2b_api_key,
                     "pageNo": "1",
                     "numOfRows": "1",
                     "type": "json"
                 }
             }
-        ]
+        )
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             for endpoint in endpoints:
@@ -143,7 +157,7 @@ class G2BConnectionTester:
         start_date = end_date - timedelta(days=30)
 
         search_params = {
-            "serviceKey": self.g2b_api_key,
+            "ServiceKey": self.g2b_api_key,
             "pageNo": "1",
             "numOfRows": "10",
             "type": "json",
@@ -155,51 +169,54 @@ class G2BConnectionTester:
         print(f"검색 키워드: {search_keywords}")
         print(f"검색 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
 
-        url = f"{self.base_url}/BidPublicInfoService/getBidPblancListInfoServc"
-
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
-            try:
-                async with session.get(url, params=search_params) as response:
-                    print(f"\n상태 코드: {response.status}")
+            for base_url in self.api_base_urls:
+                url = f"{base_url}/getBidPblancListInfoServcPPSSrch"
+                print(f"\n엔드포인트 시도: {url}")
+                try:
+                    async with session.get(url, params=search_params) as response:
+                        print(f"상태 코드: {response.status}")
 
-                    if response.status == 200:
-                        data = await response.json()
+                        if response.status == 200:
+                            data = await response.json()
 
-                        if 'response' in data:
-                            header = data['response'].get('header', {})
-                            body = data['response'].get('body', {})
+                            if 'response' in data:
+                                header = data['response'].get('header', {})
+                                body = data['response'].get('body', {})
 
-                            result_code = header.get('resultCode', 'Unknown')
-                            result_msg = header.get('resultMsg', 'Unknown')
+                                result_code = header.get('resultCode', 'Unknown')
+                                result_msg = header.get('resultMsg', 'Unknown')
 
-                            print(f"API 결과: {result_code} - {result_msg}")
+                                print(f"API 결과: {result_code} - {result_msg}")
 
-                            if result_code == "00":
-                                total_count = body.get('totalCount', 0)
-                                items = body.get('items', [])
+                                if result_code == "00":
+                                    total_count = body.get('totalCount', 0)
+                                    items = body.get('items', [])
 
-                                print(f"✅ 검색 성공!")
-                                print(f"📊 총 검색 결과: {total_count:,}건")
-                                print(f"📋 현재 페이지 결과: {len(items)}건")
+                                    print(f"✅ 검색 성공!")
+                                    print(f"📊 총 검색 결과: {total_count:,}건")
+                                    print(f"📋 현재 페이지 결과: {len(items)}건")
 
-                                if items:
-                                    print(f"\n📄 첫 번째 결과 예시:")
-                                    first_item = items[0]
-                                    print(f"   공고명: {first_item.get('bidNtceNm', 'N/A')}")
-                                    print(f"   공고기관: {first_item.get('ntceInsttNm', 'N/A')}")
-                                    print(f"   공고일자: {first_item.get('bidNtceDt', 'N/A')}")
-                                    print(f"   마감일자: {first_item.get('bidClseDt', 'N/A')}")
+                                    if items:
+                                        print(f"\n📄 첫 번째 결과 예시:")
+                                        first_item = items[0]
+                                        print(f"   공고명: {first_item.get('bidNtceNm', 'N/A')}")
+                                        print(f"   공고기관: {first_item.get('ntceInsttNm', 'N/A')}")
+                                        print(f"   공고일자: {first_item.get('bidNtceDt', 'N/A')}")
+                                        print(f"   마감일자: {first_item.get('bidClseDt', 'N/A')}")
+                                    break
+                                else:
+                                    print(f"❌ 검색 실패: {result_msg}")
                             else:
-                                print(f"❌ 검색 실패: {result_msg}")
+                                print(f"❌ 예상되지 않은 응답 형식")
                         else:
-                            print(f"❌ 예상되지 않은 응답 형식")
-                    else:
-                        text = await response.text()
-                        print(f"❌ HTTP 오류: {response.status}")
-                        print(f"응답: {text[:300]}...")
+                            text = await response.text()
+                            print(f"❌ HTTP 오류: {response.status}")
+                            print(f"응답: {text[:300]}...")
 
-            except Exception as e:
-                print(f"❌ 검색 테스트 실패: {str(e)}")
+                except Exception as e:
+                    print(f"❌ 검색 테스트 실패: {str(e)}")
+                    continue
 
     async def run_full_diagnostic(self):
         """전체 진단 실행"""

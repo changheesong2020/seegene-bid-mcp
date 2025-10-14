@@ -24,7 +24,15 @@ class G2BCrawler(BaseCrawler):
         self.encoded_api_key = self._prepare_service_key(self.api_key)
 
         # BidPublicInfoService 설정
-        self.api_base_url = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService"
+        # 최근 data.go.kr API 경로가 02 버전으로 변경되면서 기존 엔드포인트에서 404가
+        # 발생하는 사례가 있어 다중 엔드포인트를 준비한다.
+        self.api_base_url_candidates: List[str] = [
+            "https://apis.data.go.kr/1230000/ad/BidPublicInfoService02",
+            "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
+            "https://apis.data.go.kr/1230000/BidPublicInfoService02",
+            "https://apis.data.go.kr/1230000/BidPublicInfoService",
+        ]
+        self.active_api_base_url: Optional[str] = None
         self.operations = {
             "cnstwk": ("getBidPblancListInfoCnstwkPPSSrch", "공사"),
             "servc": ("getBidPblancListInfoServcPPSSrch", "용역"),
@@ -36,7 +44,7 @@ class G2BCrawler(BaseCrawler):
         self.api_rows_per_page = 50  # 페이지 크기 줄여서 API 제한 회피
 
         # 공공데이터개방표준서비스 설정 (백업용)
-        self.standard_api_base_url = "http://apis.data.go.kr/1230000/ao/PubDataOpnStdService"
+        self.standard_api_base_url = "https://apis.data.go.kr/1230000/ao/PubDataOpnStdService"
         self.standard_operation = "getDataSetOpnStdBidPblancInfo"
 
     async def login(self) -> bool:
@@ -138,6 +146,66 @@ class G2BCrawler(BaseCrawler):
             logger.error(f"❌ G2B API 검색 중 오류: {e}")
             return all_results
 
+    def _get_prioritized_api_base_urls(self) -> List[str]:
+        """최근 성공한 엔드포인트를 우선적으로 시도"""
+        if self.active_api_base_url and self.active_api_base_url in self.api_base_url_candidates:
+            prioritized = [self.active_api_base_url]
+            prioritized.extend(
+                [url for url in self.api_base_url_candidates if url != self.active_api_base_url]
+            )
+            return prioritized
+        return self.api_base_url_candidates
+
+    async def _request_bid_public_info(
+        self,
+        session: aiohttp.ClientSession,
+        operation: str,
+        params: Dict[str, Any],
+        category_label: str,
+    ) -> Optional[str]:
+        """엔드포인트 후보를 순회하며 BidPublicInfoService 응답을 가져온다."""
+
+        last_status: Optional[int] = None
+
+        for base_url in self._get_prioritized_api_base_urls():
+            url = f"{base_url}/{operation}"
+            try:
+                async with session.get(url, params=params) as response:
+                    last_status = response.status
+
+                    if response.status == 200:
+                        if base_url != self.active_api_base_url:
+                            logger.info(f"[{category_label}] G2B API 엔드포인트 사용: {base_url}")
+                        self.active_api_base_url = base_url
+                        return await response.text()
+
+                    if response.status == 404:
+                        logger.warning(
+                            f"[{category_label}] 엔드포인트 {url} 에서 404 응답 - 다른 경로 시도"
+                        )
+                        if self.active_api_base_url == base_url:
+                            self.active_api_base_url = None
+                        continue
+
+                    error_text = await response.text()
+                    logger.error(
+                        f"[{category_label}] API 호출 실패: {response.status}"
+                    )
+                    if error_text:
+                        logger.debug(f"[{category_label}] API 실패 응답: {error_text[:200]}")
+                    return None
+
+            except Exception as e:
+                logger.error(f"[{category_label}] API 호출 중 예외 발생 ({url}): {e}")
+                if self.active_api_base_url == base_url:
+                    self.active_api_base_url = None
+                continue
+
+        if last_status == 404:
+            logger.error(f"[{category_label}] 모든 G2B 엔드포인트에서 404 응답")
+
+        return None
+
     async def _search_bid_public_info(
         self,
         operation: str,
@@ -167,7 +235,6 @@ class G2BCrawler(BaseCrawler):
             }
             search_params = self._build_search_query_params(category, keywords, start_date, end_date)
 
-            url = f"{self.api_base_url}/{operation}"
             timeout = self.api_request_timeout
 
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -179,23 +246,26 @@ class G2BCrawler(BaseCrawler):
                     json_data: Optional[Dict[str, Any]] = None
                     should_break = False
 
-                    async with session.get(url, params=request_params) as response:
-                        if response.status != 200:
-                            logger.error(f"[{category_label}] API 호출 실패: {response.status}")
+                    data = await self._request_bid_public_info(
+                        session, operation, request_params, category_label
+                    )
+
+                    if data is None:
+                        should_break = True
+                    else:
+                        if not data.strip():
+                            logger.warning(
+                                f"[{category_label}] API에서 빈 응답 수신 (page {page_no})"
+                            )
                             should_break = True
                         else:
-                            data = await response.text()
-                            if not data.strip():
-                                logger.warning(f"[{category_label}] API에서 빈 응답 수신 (page {page_no})")
+                            try:
+                                json_data = json.loads(data)
+                            except json.JSONDecodeError:
+                                logger.error(
+                                    f"[{category_label}] API 응답을 JSON으로 파싱하지 못했습니다. 응답 내용: {data[:200]}"
+                                )
                                 should_break = True
-                            else:
-                                try:
-                                    json_data = json.loads(data)
-                                except json.JSONDecodeError:
-                                    logger.error(
-                                        f"[{category_label}] API 응답을 JSON으로 파싱하지 못했습니다. 응답 내용: {data[:200]}"
-                                    )
-                                    should_break = True
 
                     if should_break:
                         break
