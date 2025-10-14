@@ -7,7 +7,7 @@
 ### 주요 지원 플랫폼 (데이터베이스 저장 완료 ✅)
 - 🇰🇷 **G2B (나라장터)**: 한국 정부 조달 API ✅
   - 공식 사이트: https://www.g2b.go.kr
-  - API 엔드포인트: http://apis.data.go.kr/1230000/ad/BidPublicInfoService
+  - API 엔드포인트: https://apis.data.go.kr/1230000/ad/BidPublicInfoService02 (BidPublicInfoService → BidPublicInfoService02 자동 폴백 지원)
   - 상태: **68건 수집/저장 성공**
 
 - 🇺🇸 **SAM.gov**: 미국 정부 조달 시스템 ✅
