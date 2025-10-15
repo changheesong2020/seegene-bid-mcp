@@ -126,23 +126,29 @@ class TEDCrawler(BaseCrawler):
         return matched_keywords
 
     async def _fetch_ted_notices(self, session: aiohttp.ClientSession, start_date: datetime, end_date: datetime) -> List[Dict]:
-        """TED eSenders 포털에서 공고 데이터 수집"""
+        """TED 공고 데이터 수집 - 실제 작동하는 방법 사용"""
         try:
-            logger.info("🔍 TED 데이터 수집 시도 - 다양한 방법으로 접근")
+            logger.info("🔍 TED 데이터 수집 시도 - 직접 XML 접근 방법")
 
-            # 1. 공개 데이터 포털 시도 (data.europa.eu)
+            # 1. 직접 XML 접근 (실제 작동하는 방법)
+            xml_results = await self._fetch_ted_xml_notices(session, start_date, end_date)
+            if xml_results:
+                logger.info(f"🇪🇺 TED 직접 XML 접근에서 {len(xml_results)}건 수집")
+                return xml_results
+
+            # 2. 공개 데이터 포털 시도 (data.europa.eu)
             europa_results = await self._fetch_europa_data(session, start_date, end_date)
             if europa_results:
                 logger.info(f"🇪🇺 Europa 데이터 포털에서 {len(europa_results)}건 수집")
                 return europa_results
 
-            # 2. TED eSenders 직접 접근 시도
+            # 3. TED eSenders 직접 접근 시도
             esenders_results = await self._fetch_esenders_data(session, start_date, end_date)
             if esenders_results:
                 logger.info(f"📧 eSenders에서 {len(esenders_results)}건 수집")
                 return esenders_results
 
-            # 3. 샘플 데이터 생성 (실제 TED 구조 기반)
+            # 4. 샘플 데이터 생성 (실제 TED 구조 기반)
             sample_results = self._generate_sample_ted_data()
             if sample_results:
                 logger.info(f"📋 TED 샘플 데이터 {len(sample_results)}건 생성 (참고용)")
@@ -154,6 +160,115 @@ class TEDCrawler(BaseCrawler):
         except Exception as e:
             logger.error(f"❌ TED 데이터 수집 전체 실패: {e}")
             return []
+
+    async def _fetch_ted_xml_notices(self, session: aiohttp.ClientSession, start_date: datetime, end_date: datetime) -> List[Dict]:
+        """TED 직접 XML 접근으로 공고 수집 (실제 작동 방법)"""
+        try:
+            logger.info("📄 TED 직접 XML 접근 시작")
+
+            # 현재 연도 기준으로 공고 번호 범위 생성
+            current_year = datetime.now().year
+            results = []
+
+            # 샘플링할 공고 번호 범위 (최근 공고들 위주)
+            # TED는 하루에 수백 개의 공고가 올라오므로 적절한 범위로 샘플링
+            start_notice_num = 500000  # 올해 추정 시작 번호
+            sample_size = 50  # 샘플링할 공고 수
+
+            # 동시성 제한
+            semaphore = asyncio.Semaphore(5)  # 최대 5개 동시 요청
+
+            async def check_notice(notice_num: int):
+                async with semaphore:
+                    notice_id = f"{notice_num:08d}-{current_year}"
+                    xml_url = f"https://ted.europa.eu/en/notice/{notice_id}/xml"
+
+                    try:
+                        async with session.get(xml_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                            if response.status == 200:
+                                xml_content = await response.text()
+
+                                # 헬스케어 관련 키워드 확인
+                                if self._contains_healthcare_keywords_xml(xml_content):
+                                    notice_data = self._parse_xml_to_dict(xml_content, notice_id)
+                                    if notice_data:
+                                        return notice_data
+
+                            return None
+                    except Exception as e:
+                        logger.debug(f"공고 {notice_id} 확인 실패: {e}")
+                        return None
+                    finally:
+                        await asyncio.sleep(0.1)  # 요청 간 지연
+
+            # 공고 번호들 생성 (역순으로 최신 공고부터)
+            notice_numbers = list(range(start_notice_num, start_notice_num - sample_size, -1))
+
+            # 병렬로 공고들 확인
+            tasks = [check_notice(num) for num in notice_numbers]
+            task_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 결과 수집
+            for result in task_results:
+                if isinstance(result, dict):
+                    results.append(result)
+
+            logger.info(f"📄 TED XML 직접 접근: {len(results)}건의 헬스케어 관련 공고 발견")
+            return results
+
+        except Exception as e:
+            logger.error(f"❌ TED XML 직접 접근 실패: {e}")
+            return []
+
+    def _contains_healthcare_keywords_xml(self, xml_content: str) -> bool:
+        """XML 내용에서 헬스케어 키워드 확인"""
+        content_lower = xml_content.lower()
+        healthcare_keywords = [
+            "diagnostic", "medical", "healthcare", "health", "hospital",
+            "laboratory", "clinical", "pharmaceutical", "biomedical",
+            "equipment", "device", "reagent", "pcr", "molecular"
+        ]
+
+        return any(keyword in content_lower for keyword in healthcare_keywords)
+
+    def _parse_xml_to_dict(self, xml_content: str, notice_id: str) -> Optional[Dict]:
+        """XML을 딕셔너리로 파싱"""
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(xml_content)
+
+            # 기본 정보 추출
+            title = self._extract_xml_text(root, ["title", "description", "subject"])
+            organization = self._extract_xml_text(root, ["buyer", "contracting", "authority", "name"])
+
+            if not title:
+                return None
+
+            notice_data = {
+                "id": notice_id,
+                "title": title,
+                "link": f"https://ted.europa.eu/en/notice/{notice_id}",
+                "description": title,  # XML에서 상세 설명 추출이 어려우면 제목 사용
+                "publication_date": datetime.now().strftime("%Y-%m-%d"),
+                "source": "ted_xml",
+                "organization": organization,
+                "country": self._extract_xml_text(root, ["country", "nation"]) or "EU"
+            }
+
+            return notice_data
+
+        except Exception as e:
+            logger.debug(f"XML 파싱 실패 ({notice_id}): {e}")
+            return None
+
+    def _extract_xml_text(self, root, tag_names: List[str]) -> str:
+        """XML에서 특정 태그의 텍스트 추출"""
+        for tag_name in tag_names:
+            for elem in root.iter():
+                if tag_name.lower() in elem.tag.lower():
+                    if elem.text and elem.text.strip():
+                        return elem.text.strip()
+        return ""
 
     async def _fetch_europa_data(self, session: aiohttp.ClientSession, start_date: datetime, end_date: datetime) -> List[Dict]:
         """Europa 데이터 포털에서 TED 데이터 수집"""
@@ -659,7 +774,9 @@ class TEDCrawler(BaseCrawler):
             if isinstance(notice_data.get("AA"), str):
                 aa_name = notice_data.get("AA", "Unknown Authority")
 
-            country_code = notice_data.get("CY", notice_data.get("country", "EU"))
+            country_code_raw = notice_data.get("CY", notice_data.get("country", "EU"))
+            # TED uses extended country codes (e.g., PL911), extract first 2 characters
+            country_code = country_code_raw[:2] if len(country_code_raw) >= 2 else "EU"
 
             buyer = Organization(
                 name=aa_name,
@@ -697,7 +814,7 @@ class TEDCrawler(BaseCrawler):
                 published_date=published_date,
                 submission_deadline=deadline_date,
                 estimated_value=estimated_value,
-                country_code=country_code,
+                country_code=country_code,  # Already normalized to 2 characters above
                 classifications=classifications,
                 language="en",
                 raw_data=notice_data

@@ -81,7 +81,18 @@ class G2BCrawler(BaseCrawler):
             logger.info(f"🇰🇷 G2B API 키워드별 개별 검색 시작")
             logger.info(f"🔍 검색 키워드: {keywords}")
 
+            # API 서비스 가용성 사전 체크
+            service_available = await self._check_api_service_availability()
+            if not service_available:
+                logger.error("🚫 G2B API 서비스가 현재 이용 불가능합니다")
+                logger.error("💡 해결 방법:")
+                logger.error("   1. 나중에 다시 시도하세요")
+                logger.error("   2. data.go.kr 서비스 상태를 확인하세요")
+                logger.error("   3. 대안: 나라장터 웹사이트 직접 크롤링 고려")
+                return []
+
             # 각 키워드별로 개별 검색
+            successful_searches = 0
             for i, keyword in enumerate(keywords, 1):
                 try:
                     logger.info(f"[{i}/{len(keywords)}] 키워드 '{keyword}' 검색 중...")
@@ -99,6 +110,7 @@ class G2BCrawler(BaseCrawler):
                         if results:
                             keyword_results.extend(results)
                             logger.info(f"  ✅ [{keyword}] {log_label}에서 {len(results)}건 수집")
+                            successful_searches += 1
                         else:
                             logger.info(f"  ⚪ [{keyword}] {log_label} 검색 결과 없음")
 
@@ -124,6 +136,15 @@ class G2BCrawler(BaseCrawler):
                 except Exception as e:
                     logger.warning(f"⚠️ 키워드 '{keyword}' 검색 실패: {e}")
                     continue
+
+            # 검색 결과 요약
+            if successful_searches == 0:
+                logger.warning("🚨 모든 G2B API 검색이 실패했습니다")
+                logger.warning("📋 가능한 원인:")
+                logger.warning("   - API 서비스 일시적 중단")
+                logger.warning("   - API 키 권한 문제")
+                logger.warning("   - 네트워크 연결 문제")
+                return []
 
             # 중복 제거
             unique_results = self._remove_duplicates(all_results)
@@ -166,6 +187,7 @@ class G2BCrawler(BaseCrawler):
         """엔드포인트 후보를 순회하며 BidPublicInfoService 응답을 가져온다."""
 
         last_status: Optional[int] = None
+        service_unavailable_count = 0
 
         for base_url in self._get_prioritized_api_base_urls():
             url = f"{base_url}/{operation}"
@@ -187,6 +209,15 @@ class G2BCrawler(BaseCrawler):
                             self.active_api_base_url = None
                         continue
 
+                    if response.status == 503:
+                        service_unavailable_count += 1
+                        logger.warning(
+                            f"[{category_label}] 엔드포인트 {url} 에서 503 서비스 불가 응답 - 다른 경로 시도"
+                        )
+                        if self.active_api_base_url == base_url:
+                            self.active_api_base_url = None
+                        continue
+
                     error_text = await response.text()
                     logger.error(
                         f"[{category_label}] API 호출 실패: {response.status}"
@@ -201,8 +232,13 @@ class G2BCrawler(BaseCrawler):
                     self.active_api_base_url = None
                 continue
 
-        if last_status == 404:
+        # 서비스 상태에 따른 적절한 에러 메시지 출력
+        if service_unavailable_count == len(self.api_base_url_candidates):
+            logger.error(f"[{category_label}] G2B API 서비스가 현재 이용 불가능합니다 (503 Service Unavailable)")
+            logger.error(f"[{category_label}] 해결 방법: 1) 나중에 다시 시도, 2) data.go.kr 서비스 상태 확인, 3) API 키 유효성 검증")
+        elif last_status == 404:
             logger.error(f"[{category_label}] 모든 G2B 엔드포인트에서 404 응답")
+            logger.error(f"[{category_label}] G2B API 구조가 변경되었을 가능성이 있습니다. 최신 API 문서를 확인하세요.")
 
         return None
 
@@ -747,6 +783,34 @@ class G2BCrawler(BaseCrawler):
                 return True
 
         return False
+
+    async def _check_api_service_availability(self) -> bool:
+        """G2B API 서비스 가용성 체크"""
+        try:
+            import aiohttp
+
+            # 기본 API 서비스 상태 확인
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                for base_url in self.api_base_url_candidates[:2]:  # 처음 2개만 체크
+                    try:
+                        # 간단한 헬스체크를 위해 기본 URL만 요청
+                        async with session.get(base_url) as response:
+                            if response.status in [200, 404]:  # 404도 서비스가 살아있다는 의미
+                                logger.info(f"G2B API 서비스 가용성 확인: {base_url} (상태: {response.status})")
+                                return True
+                            elif response.status == 503:
+                                logger.warning(f"G2B API 서비스 불가: {base_url} (503 Service Unavailable)")
+                                continue
+                    except Exception as e:
+                        logger.debug(f"G2B API 가용성 체크 실패: {base_url} - {e}")
+                        continue
+
+            logger.warning("모든 G2B API 엔드포인트가 응답하지 않습니다")
+            return False
+
+        except Exception as e:
+            logger.error(f"G2B API 서비스 가용성 체크 중 오류: {e}")
+            return False
 
     def _extract_keywords(self, title: str, organization: str = "") -> List[str]:
         """제목과 기관명에서 키워드 추출"""
