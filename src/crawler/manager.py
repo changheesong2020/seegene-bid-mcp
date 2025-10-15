@@ -38,7 +38,8 @@ class CrawlerManager:
             "DE_VERGABESTELLEN": GermanyVergabestellenCrawler(),
             "IT_MEPA": ItalyMEPACrawler(),
             "ES_PCSP": SpainPCSPCrawler(),
-            "NL_TENDERNED": NetherlandsTenderNedCrawler()
+            "NL_TENDERNED": NetherlandsTenderNedCrawler(),
+            "Sweden": TEDCrawler()  # Swedish USP handled by TED crawler
         }
         self.is_running = False
         self.last_run_results = {}
@@ -259,6 +260,18 @@ class CrawlerManager:
                     result["total_found"] = len(result.get("results", []))
 
                 logger.info(f"✅ {site_name} crawl() 완료: {result.get('total_found', 0)}건")
+            elif site_name == "Sweden":
+                # Sweden은 TED crawler의 search_bids 메서드 사용 (Swedish USP 포함)
+                logger.info(f"📡 {site_name} search_bids() 메서드 호출 (Swedish USP)")
+                bids = await crawler.search_bids(keywords)
+                logger.info(f"📋 {site_name} search_bids() 반환: {len(bids)}건")
+                result = {
+                    "success": True,
+                    "site": site_name,
+                    "total_found": len(bids),
+                    "results": bids
+                }
+                logger.info(f"✅ {site_name} search_bids() 완료: {len(bids)}건")
             elif site_name == "G2B":
                 # G2B 크롤러는 search_bids 메서드 사용
                 logger.info(f"📡 {site_name} search_bids() 메서드 호출")

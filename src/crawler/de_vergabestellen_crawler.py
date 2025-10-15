@@ -133,12 +133,7 @@ class GermanyVergabestellenCrawler(BaseCrawler):
                     had_failures = True
 
             if not results and had_failures:
-                dummy_results = self._generate_dummy_results(keywords)
-                if dummy_results:
-                    logger.info(
-                        "실제 데이터 수집에 실패하여 독일 Vergabestellen 더미 데이터를 제공합니다"
-                    )
-                    results.extend(dummy_results)
+                logger.warning("독일 Vergabestellen 포털에서 데이터 수집에 실패했습니다")
 
             # 결과 중복 제거
             unique_results = self._remove_duplicates(results)
@@ -395,83 +390,6 @@ class GermanyVergabestellenCrawler(BaseCrawler):
 
         return results
 
-    def _generate_dummy_results(self, keywords: List[str] = None) -> List[Dict[str, Any]]:
-        """네트워크 실패 시 헬스케어 중심 더미 데이터 생성"""
-        templates = [
-            {
-                "title": "Beschaffung von PCR-Diagnostiksystemen für kommunale Kliniken",
-                "description": (
-                    "Lieferung und Wartung von PCR-Diagnostiksystemen inklusive Reagenzien "
-                    "für kommunale Krankenhäuser in Deutschland."
-                ),
-                "organization": "Städtisches Klinikum Berlin",
-                "cpv_codes": ["33124110", "33124130"],
-                "estimated_value": 275000.0,
-                "deadline_delta": 21,
-            },
-            {
-                "title": "Digitales Laborinformationssystem für Universitätskliniken",
-                "description": (
-                    "Implementierung eines digitalen Laborinformations- und Managementsystems "
-                    "mit Fokus auf molekulare Diagnostik."
-                ),
-                "organization": "Universitätsklinikum München",
-                "cpv_codes": ["33127000", "48931000"],
-                "estimated_value": 420000.0,
-                "deadline_delta": 28,
-            },
-            {
-                "title": "Beschaffung von mobilen Teststationen für Atemwegsinfektionen",
-                "description": (
-                    "Bereitstellung von mobilen Teststationen zur schnellen Erkennung von "
-                    "Atemwegsinfektionen inklusive Schulung des medizinischen Personals."
-                ),
-                "organization": "Landesgesundheitsamt Nordrhein-Westfalen",
-                "cpv_codes": ["33191000", "80550000"],
-                "estimated_value": 190000.0,
-                "deadline_delta": 24,
-            },
-        ]
-
-        now = datetime.now()
-        keywords = keywords or []
-        dummy_results: List[Dict[str, Any]] = []
-
-        for index, template in enumerate(templates):
-            publication_date = (now - timedelta(days=index + 1)).date().isoformat()
-            deadline_date = (now + timedelta(days=template["deadline_delta"])).date().isoformat()
-
-            dummy_results.append(
-                {
-                    "title": template["title"],
-                    "organization": template["organization"],
-                    "bid_number": f"DE-DUMMY-{now.strftime('%Y%m%d')}-{index+1:03d}",
-                    "announcement_date": publication_date,
-                    "deadline_date": deadline_date,
-                    "estimated_price": str(template["estimated_value"]),
-                    "currency": "EUR",
-                    "source_url": f"https://dummy-vergabe.de/notice/{now.strftime('%Y%m%d')}-{index+1:03d}",
-                    "source_site": "DE_VERGABESTELLEN",
-                    "country": "DE",
-                    "keywords": ["medical", "healthcare"],
-                    "relevance_score": 8.5,
-                    "urgency_level": "high",
-                    "status": "active",
-                    "extra_data": {
-                        "description": template["description"],
-                        "tender_type": "OPEN",
-                        "cpv_codes": template["cpv_codes"],
-                        "notice_type": "OFFLINE_FALLBACK",
-                        "language": "de",
-                        "dummy": True,
-                        "generated_at": now.isoformat(),
-                        "reason": "network_failure",
-                        "search_keywords": keywords,
-                    },
-                }
-            )
-
-        return dummy_results
 
     def _matches_keywords_de(self, text: str, keywords: List[str]) -> bool:
         """독일어 키워드 매칭"""
